@@ -1,6 +1,153 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer } from 'lucide-react';
 
+// Интерфейс для кликабельных областей (хотспотов) на изображениях
+interface Hotspot {
+  id: string;
+  x: number;        // позиция в % от ширины изображения
+  y: number;        // позиция в % от высоты изображения  
+  width: number;    // ширина в % от ширины изображения
+  height: number;   // высота в % от высоты изображения
+  edgeId: string;   // ID связи, к которой привязан хотспот
+}
+
+// Компонент перетаскиваемого хотспота (вынесен на уровень модуля)
+const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, isInViewMode = false }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [tempPosition, setTempPosition] = useState(null); // Временная позиция во время drag
+  const hotspotRef = useRef(null);
+  const dragInfo = useRef(null);
+  const lastUpdateTime = useRef(0); // Возвращаем легкий throttling
+  
+  const handleMouseDown = (e) => {
+    if (isInViewMode) return; // В режиме просмотра не перетаскиваем
+    if (e.button !== 0) return; // Только левая кнопка мыши
+    if (isDragging) return; // Уже перетаскиваем
+    
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const container = hotspotRef.current?.parentElement;
+    if (!container) return;
+    
+    // Сохраняем начальные позиции
+    dragInfo.current = {
+      startX: e.pageX,
+      startY: e.pageY,
+      initialHotspotX: hotspot.x,
+      initialHotspotY: hotspot.y,
+      containerRect: container.getBoundingClientRect()
+    };
+    
+    setIsDragging(true);
+    
+    // Устанавливаем курсор и блокируем выделение
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+  };
+
+  React.useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => {
+      if (!dragInfo.current) return;
+      
+      // Легкий throttling - обновляем не чаще чем каждые 8ms
+      const now = Date.now();
+      if (now - lastUpdateTime.current < 8) return;
+      lastUpdateTime.current = now;
+      
+      // Дополнительная проверка - если кнопка мыши больше не нажата, останавливаем
+      if (e.buttons === 0) {
+        handleMouseUp();
+        return;
+      }
+      
+      const { startX, startY, initialHotspotX, initialHotspotY, containerRect } = dragInfo.current;
+      
+      const deltaX = ((e.pageX - startX) / containerRect.width) * 100;
+      const deltaY = ((e.pageY - startY) / containerRect.height) * 100;
+      
+      const newX = Math.max(0, Math.min(80, initialHotspotX + deltaX));
+      const newY = Math.max(0, Math.min(92, initialHotspotY + deltaY));
+      
+      // Во время drag обновляем только локальную позицию - НЕ ТРОГАЕМ глобальное состояние!
+      setTempPosition({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      // Если есть временная позиция, сохраняем её в глобальное состояние
+      if (tempPosition) {
+        onPositionUpdate(choiceNodeId, hotspot.edgeId, tempPosition.x, tempPosition.y);
+        setTempPosition(null);
+      }
+      
+      setIsDragging(false);
+      dragInfo.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    // Предотвращаем контекстное меню во время перетаскивания
+    const handleContextMenu = (e) => {
+      if (isDragging) {
+        e.preventDefault();
+        handleMouseUp();
+      }
+    };
+
+    // Добавляем обработчики
+    document.addEventListener('mousemove', handleMouseMove, { passive: false });
+    document.addEventListener('mouseup', handleMouseUp, { passive: false });
+    document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    
+    // Cleanup функция
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [isDragging, choiceNodeId, hotspot.edgeId, onPositionUpdate, tempPosition]);
+  
+  const handleClick = (e) => {
+    if (isInViewMode && hotspot.onClick) {
+      e.preventDefault();
+      e.stopPropagation();
+      hotspot.onClick();
+    }
+  };
+  
+  return (
+    <div
+      ref={hotspotRef}
+      className={`absolute rounded flex items-center justify-center text-white text-xs font-medium transition-all duration-200 ${
+        isInViewMode 
+          ? (hotspot.isSelected 
+              ? 'bg-green-500 bg-opacity-80 border-2 border-green-300 cursor-pointer' 
+              : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-pointer')
+          : (isDragging 
+              ? 'bg-blue-500 bg-opacity-90 border-2 border-blue-300 cursor-grabbing' 
+              : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-grab')
+      }`}
+      style={{
+        left: `${tempPosition ? tempPosition.x : hotspot.x}%`,
+        top: `${tempPosition ? tempPosition.y : hotspot.y}%`,
+        width: `${hotspot.width}%`,
+        height: `${hotspot.height}%`,
+        minWidth: '60px',
+        minHeight: '24px',
+        zIndex: isDragging ? 1000 : 1
+      }}
+      onMouseDown={handleMouseDown}
+      onClick={handleClick}
+      title={hotspot.title}
+    >
+      {hotspot.isSelected && '✓ '}
+      {hotspot.label}
+    </div>
+  );
+});
+
 // Выносим NodeComponent на уровень модуля
 const NodeComponent = ({ 
   node, 
@@ -290,7 +437,9 @@ const WebtoonsGraphEditor = () => {
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [lastAddedNodeId, setLastAddedNodeId] = useState(null);
+  const [choiceHistory, setChoiceHistory] = useState([]);
   const [viewerPath, setViewerPath] = useState([]);
+  const [draggedHotspot, setDraggedHotspot] = useState(null); // Состояние для перетаскивания хотспотов
   const graphScrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -490,6 +639,60 @@ const WebtoonsGraphEditor = () => {
     setTimeout(() => centerOnNode(nodeId), 100);
   };
 
+  // Функция обновления позиции хотспота
+  const updateHotspotPosition = useCallback((choiceNodeId: string, edgeId: string, x: number, y: number) => {
+    setNodes(prev => {
+      const oldNode = prev[choiceNodeId];
+      
+      const updatedNode = {
+        ...prev[choiceNodeId],
+        data: {
+          ...prev[choiceNodeId].data,
+          hotspots: {
+            ...prev[choiceNodeId].data.hotspots,
+            [edgeId]: {
+              ...prev[choiceNodeId].data.hotspots?.[edgeId],
+              x,
+              y
+            }
+          }
+        }
+      };
+      
+      return {
+        ...prev,
+        [choiceNodeId]: updatedNode
+      };
+    });
+  }, []);
+
+  // Функция получения сохраненной позиции хотспота
+  const getHotspotPosition = (choiceNodeId: string, edgeId: string, defaultX: number, defaultY: number) => {
+    const savedHotspot = nodes[choiceNodeId]?.data?.hotspots?.[edgeId];
+    const result = {
+      x: savedHotspot?.x ?? defaultX,
+      y: savedHotspot?.y ?? defaultY,
+      width: savedHotspot?.width ?? 20,
+      height: savedHotspot?.height ?? 8
+    };
+    
+    return result;
+  };
+
+  // Функция поиска предыдущей image-ноды для choice-ноды
+  const getPreviousImageNode = (choiceNodeId: string) => {
+    const incomingEdges = edges.filter(edge => edge.to === choiceNodeId);
+    
+    for (const edge of incomingEdges) {
+      const sourceNode = nodes[edge.from];
+      if (sourceNode && sourceNode.type === 'image') {
+        return sourceNode;
+      }
+    }
+    
+    return null;
+  };
+
   const createChoiceNode = () => {
     const nodeId = `choice_${Date.now()}`;
     const position = findFreePosition('choice');
@@ -500,7 +703,8 @@ const WebtoonsGraphEditor = () => {
       position,
       data: { 
         title: 'Выберите действие:',
-        options: ['Вариант 1', 'Вариант 2']
+        options: ['Вариант 1', 'Вариант 2'],
+        hotspots: {} as Record<string, Hotspot>  // Массив кликабельных областей
       }
     };
     
@@ -652,53 +856,79 @@ const WebtoonsGraphEditor = () => {
       if (!currentNode) break;
       
       if (currentNode.type === 'image') {
-        path.push({
+        const imageItem = {
           type: 'image',
           nodeId: currentNodeId,
           imageId: currentNode.data.imageId,
           image: images[currentNode.data.imageId],
-          caption: currentNode.data.caption
-        });
+          caption: currentNode.data.caption,
+          hotspots: null  // Будет заполнено если следующая нода - choice
+        };
         
+        // Проверяем, ведет ли эта image-нода к choice-ноде
         const nextEdge = edges.find(edge => edge.from === currentNodeId);
-        currentNodeId = nextEdge ? nextEdge.to : null;
+        const nextNode = nextEdge ? nodes[nextEdge.to] : null;
+        
+        if (nextNode && nextNode.type === 'choice') {
+          // Следующая нода - choice, добавляем хотспоты к текущей image
+          const outgoingEdges = edges.filter(edge => edge.from === nextNode.id);
+          
+          if (outgoingEdges.length > 0) {
+            const savedChoice = choiceHistory[choiceIndex];
+            const selectedOptionIndex = savedChoice !== undefined ? savedChoice : 0;
+            
+            const hotspots = outgoingEdges.map((edge, index) => {
+              const targetNode = nodes[edge.to];
+              const targetImage = targetNode && targetNode.type === 'image' ? images[targetNode.data.imageId] : null;
+              const label = targetNode?.data.caption || targetImage?.name || nextNode.data.options[index] || `Вариант ${index + 1}`;
+              
+              // Позиции хотспотов (используем сохраненные или по умолчанию)
+              const defaultX = 10 + (index * 25);
+              const defaultY = 10 + (index * 15);
+              const position = getHotspotPosition(nextNode.id, edge.id, defaultX, defaultY);
+              
+              return {
+                id: edge.id,
+                edgeId: edge.id,
+                x: position.x,
+                y: position.y,
+                width: position.width,
+                height: position.height,
+                label: label,
+                targetNodeId: edge.to,
+                optionIndex: index,
+                isSelected: index === selectedOptionIndex
+              };
+            });
+            
+            imageItem.hotspots = {
+              choiceNodeId: nextNode.id,
+              choiceIndex: choiceIndex,
+              selectedOption: selectedOptionIndex,
+              items: hotspots
+            };
+            
+            // Переходим к выбранной цели
+            if (outgoingEdges[selectedOptionIndex]) {
+              currentNodeId = outgoingEdges[selectedOptionIndex].to;
+              choiceIndex++;
+            } else {
+              currentNodeId = null;
+            }
+          } else {
+            currentNodeId = null;
+          }
+        } else {
+          // Обычная image-нода без choice
+          currentNodeId = nextEdge ? nextEdge.to : null;
+        }
+        
+        path.push(imageItem);
         
       } else if (currentNode.type === 'choice') {
-        const outgoingEdges = edges.filter(edge => edge.from === currentNodeId);
-        
-        if (outgoingEdges.length === 0) break;
-        
-        const options = outgoingEdges.map(edge => {
-          const targetNode = nodes[edge.to];
-          const targetImage = targetNode && targetNode.type === 'image' ? images[targetNode.data.imageId] : null;
-          return {
-            nodeId: edge.to,
-            text: targetNode?.data.caption || targetImage?.name || 'Вариант',
-            targetNodeId: edge.to
-          };
-        });
-        
-        const savedChoice = choiceHistory[choiceIndex];
-        const selectedOptionIndex = savedChoice !== undefined ? savedChoice : 0;
-        
-        path.push({
-          type: 'choice',
-          nodeId: currentNodeId,
-          data: { 
-            title: currentNode.data.title,
-            options: options.map(opt => opt.text)
-          },
-          choiceIndex: choiceIndex,
-          selectedOption: selectedOptionIndex,
-          targetNodes: options.map(opt => opt.targetNodeId)
-        });
-        
-        if (options[selectedOptionIndex]) {
-          currentNodeId = options[selectedOptionIndex].targetNodeId;
-          choiceIndex++;
-        } else {
-          break;
-        }
+        // Этот случай не должен происходить, т.к. choice обрабатываются в image
+        const nextEdge = edges.find(edge => edge.from === currentNodeId);
+        currentNodeId = nextEdge ? nextEdge.to : null;
         
       } else {
         const nextEdge = edges.find(edge => edge.from === currentNodeId);
@@ -712,10 +942,12 @@ const WebtoonsGraphEditor = () => {
   const handleViewerChoice = (choiceIndex, optionIndex) => {
     const newChoiceHistory = [];
     
-    const choiceItems = viewerPath.filter(item => item.type === 'choice');
-    for (let i = 0; i < choiceItems.length; i++) {
+    // Находим все image-ноды с хотспотами (они содержат информацию о выборах)
+    const imageItemsWithHotspots = viewerPath.filter(item => item.type === 'image' && item.hotspots);
+    
+    for (let i = 0; i < imageItemsWithHotspots.length; i++) {
       if (i < choiceIndex) {
-        newChoiceHistory[i] = choiceItems[i].selectedOption;
+        newChoiceHistory[i] = imageItemsWithHotspots[i].hotspots.selectedOption;
       } else if (i === choiceIndex) {
         newChoiceHistory[i] = optionIndex;
       }
@@ -742,7 +974,7 @@ const WebtoonsGraphEditor = () => {
               Назад к конструктору
             </button>
             <div className="text-sm">
-              Элементов в истории: {viewerPath.length}
+              Изображений в истории: {viewerPath.filter(item => item.type === 'image').length}
             </div>
           </div>
         </div>
@@ -763,37 +995,30 @@ const WebtoonsGraphEditor = () => {
                         alt={item.image.name}
                         className="w-full h-auto block"
                       />
+                      
+                      {/* Подпись изображения */}
                       <div className="absolute top-2 right-2 bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded">
                         {item.caption || item.image.name}
                       </div>
-                    </div>
-                  ) : item.type === 'choice' ? (
-                    <div className="bg-gray-800 text-white p-6 my-4">
-                      <h3 className="text-lg mb-4 text-center">{item.data.title}</h3>
                       
-                      <div className="space-y-3">
-                        {item.data.options.map((option, optIndex) => (
-                          <button
-                            key={optIndex}
-                            onClick={() => handleViewerChoice(item.choiceIndex, optIndex)}
-                            className={`block w-full max-w-md mx-auto p-3 rounded transition-colors ${
-                              optIndex === item.selectedOption
-                                ? 'bg-blue-700 border-2 border-blue-400'
-                                : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                          >
-                            {optIndex === item.selectedOption && '→ '}
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                      
-                      <div className="text-center text-gray-400 text-xs mt-4">
-                        {item.selectedOption !== undefined 
-                          ? `Выбран: ${item.data.options[item.selectedOption]}`
-                          : 'Сделайте выбор'
-                        }
-                      </div>
+                      {/* Хотспоты если есть */}
+                      {item.hotspots && (
+                        <div className="absolute inset-0">
+                          {item.hotspots.items.map((hotspot, hotspotIndex) => (
+                            <DraggableHotspot
+                              key={hotspot.id}
+                              hotspot={{
+                                ...hotspot,
+                                onClick: () => handleViewerChoice(item.hotspots.choiceIndex, hotspot.optionIndex),
+                                title: `Выбрать: ${hotspot.label}`
+                              }}
+                              choiceNodeId={item.hotspots.choiceNodeId}
+                              onPositionUpdate={updateHotspotPosition}
+                              isInViewMode={true}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -1157,46 +1382,80 @@ const WebtoonsGraphEditor = () => {
                 )}
                 
                 {nodes[selectedNodeId].type === 'choice' && (
-                  <div>
-                    <div className="bg-orange-50 p-3 rounded">
-                      <p className="font-medium text-gray-800 mb-2">{nodes[selectedNodeId].data.title}</p>
-                      <div className="space-y-1">
-                        {nodes[selectedNodeId].data.options.map((option, idx) => {
-                          const outgoingEdges = edges.filter(edge => edge.from === selectedNodeId);
-                          const targetNodeId = outgoingEdges[idx]?.to;
-                          const targetNode = targetNodeId ? nodes[targetNodeId] : null;
-                          
-                          return (
-                            <div key={idx} className="flex items-center gap-2 text-sm">
-                              <span className="text-orange-600">•</span>
-                              <span>{option}</span>
-                              {targetNode && (
-                                <span className="text-xs text-gray-500">
-                                  → {targetNode.data.caption || 'Без подписи'}
-                                </span>
-                              )}
+                  <div className="relative">
+                    {/* Фоновое изображение */}
+                    {(() => {
+                      const previousImageNode = getPreviousImageNode(selectedNodeId);
+                      if (previousImageNode && images[previousImageNode.data.imageId]) {
+                        const backgroundImage = images[previousImageNode.data.imageId];
+                        
+                        return (
+                          <div className="relative">
+                            <img 
+                              src={backgroundImage.src}
+                              alt={backgroundImage.name}
+                              className="w-full h-auto object-contain rounded border"
+                            />
+                            
+                            {/* Хотспоты поверх изображения */}
+                            <div className="absolute inset-0">
+                              {edges
+                                .filter(edge => edge.from === selectedNodeId)
+                                .map((edge, index) => {
+                                  const targetNode = nodes[edge.to];
+                                  const label = targetNode?.data?.caption || nodes[selectedNodeId].data.options[index] || `Вариант ${index + 1}`;
+                                  
+                                  // Позиция хотспота по умолчанию
+                                  const defaultX = 10 + (index * 25);
+                                  const defaultY = 10 + (index * 15);
+                                  
+                                  // Получаем сохраненную позицию или используем позицию по умолчанию
+                                  const position = getHotspotPosition(selectedNodeId, edge.id, defaultX, defaultY);
+                                  
+                                  return (
+                                    <DraggableHotspot
+                                      key={edge.id}
+                                      hotspot={{
+                                        id: edge.id,
+                                        edgeId: edge.id,
+                                        x: position.x,
+                                        y: position.y,
+                                        width: position.width,
+                                        height: position.height,
+                                        label: label,
+                                        targetNodeId: edge.to,
+                                        optionIndex: index,
+                                        isSelected: false,
+                                        onClick: undefined, // В режиме конструктора не кликабельны
+                                        title: `Хотспот: ${label} (перетащите для изменения позиции)`
+                                      }}
+                                      choiceNodeId={selectedNodeId}
+                                      onPositionUpdate={updateHotspotPosition}
+                                      isInViewMode={false} // В области предпросмотра можно перетаскивать
+                                    />
+                                  );
+                                })}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      <p>ID: {selectedNodeId}</p>
-                      <p>Позиция: ({Math.round(nodes[selectedNodeId].position.x)}, {Math.round(nodes[selectedNodeId].position.y)})</p>
-                      
-                      {/* Информация о связях */}
-                      <div className="mt-1">
-                        {getNodeConnections(selectedNodeId).incoming.length > 0 && (
-                          <p className="text-green-600">
-                            ← Входящих связей: {getNodeConnections(selectedNodeId).incoming.length}
-                          </p>
-                        )}
-                        {getNodeConnections(selectedNodeId).outgoing.length > 0 && (
-                          <p className="text-blue-600">
-                            → Вариантов выбора: {getNodeConnections(selectedNodeId).outgoing.length}
-                          </p>
-                        )}
-                      </div>
+                          </div>
+                        );
+                      } else {
+                        // Если нет предыдущего изображения - показываем серую область
+                        return (
+                          <div className="w-full h-32 bg-gray-200 rounded border flex items-center justify-center text-gray-500">
+                            <div className="text-center">
+                              <p>Нет фонового изображения</p>
+                              <p className="text-xs mt-1">Подключите choice-ноду к image-ноде</p>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
+                    
+                    {/* Информационная панель */}
+                    <div className="mt-3 p-2 bg-gray-50 rounded text-xs text-gray-600">
+                      <p><strong>Заголовок:</strong> {nodes[selectedNodeId].data.title}</p>
+                      <p><strong>Вариантов выбора:</strong> {edges.filter(edge => edge.from === selectedNodeId).length}</p>
+                      <p><strong>ID:</strong> {selectedNodeId}</p>
                     </div>
                   </div>
                 )}
