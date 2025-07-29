@@ -4,7 +4,7 @@ A powerful interactive editor for creating vertical comics (webtoons) optimized 
 
 ## 🎯 Overview
 
-The Webtoon Graph Editor is a modern web application that allows content creators to design interactive vertical comics with decision trees and branching narratives. Perfect for creating mobile-optimized visual stories with multiple storylines and user choices.
+The Webtoon Graph Editor is a modern web application that allows content creators to design interactive vertical comics with decision trees and branching narratives. Features include invisible clickable hotspots that can be positioned directly on story images, creating immersive interactive experiences. Perfect for creating mobile-optimized visual stories with multiple storylines and seamless user choices.
 
 ## ✨ Features
 
@@ -15,6 +15,7 @@ The Webtoon Graph Editor is a modern web application that allows content creator
 
 ### 🌟 Story Flow Control
 - **Branching Narratives**: Create choice nodes for interactive storytelling
+- **Interactive Hotspots**: Clickable areas overlaid on images for seamless navigation
 - **START Node**: Dedicated starting point for story navigation
 - **Connection System**: Link nodes with visual arrows to create story paths
 - **Node Management**: Add, delete, and reposition story elements
@@ -29,6 +30,7 @@ The Webtoon Graph Editor is a modern web application that allows content creator
 - **Vertical Layout**: Optimized for mobile webtoon consumption
 - **Responsive Interface**: Works seamlessly across devices
 - **Touch-friendly Controls**: Intuitive interaction patterns
+- **Dual Mode System**: Constructor mode for editing, viewer mode for testing interactive stories
 
 ## 🚀 Getting Started
 
@@ -67,7 +69,8 @@ npm run dev
    - Hold Shift and click another node to create a connection
    - Hold Ctrl and click a node to remove its connections
 4. **Add Choices**: Use "Добавить выбор" to insert decision points
-5. **Preview**: Select any node to see it in the preview panel
+5. **Position Hotspots**: When a choice node is selected, drag the orange hotspots on the preview image to position them over clickable areas (like speech bubbles)
+6. **Preview**: Switch to viewer mode to test your interactive story with invisible hotspots
 
 ### Navigation Controls
 - **Mouse/Touch**: Drag nodes to reposition them
@@ -91,6 +94,7 @@ npm run dev
 ### Key Components
 - `WebtoonsGraphEditor`: Main editor interface
 - `NodeComponent`: Individual story node rendering
+- `DraggableHotspot`: Interactive clickable areas with drag-and-drop positioning
 - Interactive SVG canvas for connections
 - Dynamic image preview system
 
@@ -121,6 +125,13 @@ src/
 - **Multiple Options**: Support for branching storylines
 - **Visual Indicators**: Clear connection mapping
 - **Customizable Text**: Editable choice descriptions
+
+### Interactive Hotspot System
+- **Automatic Creation**: Hotspots are automatically generated when connecting choice nodes to other nodes
+- **Visual Editor**: Drag and position hotspots directly on preview images in constructor mode
+- **Invisible Interface**: In viewer mode, hotspots are transparent and only show labels on hover
+- **Smart Positioning**: Place hotspots over speech bubbles, characters, or objects for natural interaction
+- **Seamless Navigation**: Click hotspots to navigate through story branches without traditional UI elements
 
 ## 🔧 Development
 
