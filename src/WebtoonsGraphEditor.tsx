@@ -122,9 +122,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
       ref={hotspotRef}
       className={`absolute rounded flex items-center justify-center text-white text-xs font-medium transition-all duration-200 ${
         isInViewMode 
-          ? (hotspot.isSelected 
-              ? 'bg-green-500 bg-opacity-80 border-2 border-green-300 cursor-pointer' 
-              : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-pointer')
+          ? 'bg-transparent hover:bg-black hover:bg-opacity-60 cursor-pointer' // В режиме просмотра прозрачные, с hover эффектом
           : (isDragging 
               ? 'bg-blue-500 bg-opacity-90 border-2 border-blue-300 cursor-grabbing' 
               : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-grab')
@@ -142,8 +140,11 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
       onClick={handleClick}
       title={hotspot.title}
     >
-      {hotspot.isSelected && '✓ '}
-      {hotspot.label}
+      {/* В режиме просмотра показываем текст только при hover */}
+      <span className={isInViewMode ? "opacity-0 hover:opacity-100 transition-opacity duration-200" : ""}>
+        {hotspot.isSelected && '✓ '}
+        {hotspot.label}
+      </span>
     </div>
   );
 });
