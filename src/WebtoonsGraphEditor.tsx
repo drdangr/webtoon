@@ -432,12 +432,19 @@ interface WebtoonsGraphEditorProps {
     nodes: any;
     edges: any;
     images: any;
+    authorId: string;
+    authorName: string;
   } | null;
-  onSaveProject: (projectData: { nodes: any; edges: any; images: any; title?: string; description?: string }) => void;
+  currentUser: {
+    id: string;
+    username: string;
+  };
+  isReadOnly: boolean;
+  onSaveProject: (projectData: { nodes: any; edges: any; images: any; title?: string; description?: string; thumbnail?: string }) => void;
   onBackToGallery: () => void;
 }
 
-const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
+const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
   const [mode, setMode] = useState('constructor');
   const [images, setImages] = useState(() => {
     if (initialProject?.images && Object.keys(initialProject.images).length > 0) {
@@ -447,6 +454,9 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
   });
   const [projectTitle, setProjectTitle] = useState(initialProject?.title || 'Новый комикс');
   const [projectDescription, setProjectDescription] = useState(initialProject?.description || 'Описание комикса');
+  const [projectThumbnail, setProjectThumbnail] = useState(initialProject?.thumbnail || '');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   
   // Инициализируем nodes и edges из проекта или дефолтными значениями
   const [nodes, setNodes] = useState(() => {
@@ -474,6 +484,7 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
   const [choiceHistory, setChoiceHistory] = useState([]);
   const [viewerPath, setViewerPath] = useState([]);
   const [draggedHotspot, setDraggedHotspot] = useState(null); // Состояние для перетаскивания хотспотов
+  const [scrollPosition, setScrollPosition] = useState({ x: 0, y: 0 });
   const graphScrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -501,8 +512,10 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
     };
   }, []);
 
-  // Автосохранение проекта при изменениях
+  // Автосохранение проекта при изменениях (только если не режим просмотра)
   React.useEffect(() => {
+    if (isReadOnly) return; // Не сохраняем в режиме только просмотра
+    
     // Не сохраняем при первой загрузке
     if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) {
       return;
@@ -514,12 +527,94 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
         edges,
         images,
         title: projectTitle,
-        description: projectDescription
+        description: projectDescription,
+        thumbnail: projectThumbnail
       });
     }, 1000); // Сохраняем через 1 секунду после последнего изменения
     
     return () => clearTimeout(timeoutId);
-  }, [nodes, edges, images, projectTitle, projectDescription, onSaveProject]);
+  }, [nodes, edges, images, projectTitle, projectDescription, projectThumbnail, onSaveProject, isReadOnly]);
+
+  // Обработчики для редактирования полей проекта
+  const handleTitleClick = () => {
+    if (!isReadOnly) {
+      setIsEditingTitle(true);
+    }
+  };
+
+  const handleTitleSave = (e) => {
+    if (e.key === 'Enter' || e.type === 'blur') {
+      setIsEditingTitle(false);
+    }
+  };
+
+  const handleDescriptionClick = () => {
+    if (!isReadOnly) {
+      setIsEditingDescription(true);
+    }
+  };
+
+  const handleDescriptionSave = (e) => {
+    if (e.key === 'Enter' || e.type === 'blur') {
+      setIsEditingDescription(false);
+    }
+  };
+
+  // Обработчик загрузки превью
+  const handleThumbnailUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setProjectThumbnail(e.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+    // Очищаем input чтобы можно было загрузить тот же файл повторно
+    event.target.value = '';
+  };
+
+  // Восстановление позиции скролла при загрузке проекта
+  React.useEffect(() => {
+    if (graphScrollRef.current && initialProject) {
+      const savedScrollKey = `scroll-${initialProject.id}`;
+      const savedScroll = localStorage.getItem(savedScrollKey);
+      if (savedScroll) {
+        try {
+          const { x, y } = JSON.parse(savedScroll);
+          graphScrollRef.current.scrollLeft = x;
+          graphScrollRef.current.scrollTop = y;
+          setScrollPosition({ x, y });
+        } catch (error) {
+          console.error('Ошибка восстановления позиции скролла:', error);
+        }
+      }
+    }
+  }, [initialProject]);
+
+  // Сохранение позиции скролла
+  const handleScroll = React.useCallback(() => {
+    if (graphScrollRef.current && initialProject) {
+      const { scrollLeft, scrollTop } = graphScrollRef.current;
+      const newPosition = { x: scrollLeft, y: scrollTop };
+      setScrollPosition(newPosition);
+      
+      // Сохраняем в localStorage с привязкой к ID проекта
+      const savedScrollKey = `scroll-${initialProject.id}`;
+      localStorage.setItem(savedScrollKey, JSON.stringify(newPosition));
+    }
+  }, [initialProject]);
+
+  // Добавляем обработчик скролла
+  React.useEffect(() => {
+    const scrollContainer = graphScrollRef.current;
+    if (scrollContainer) {
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+      return () => {
+        scrollContainer.removeEventListener('scroll', handleScroll);
+      };
+    }
+  }, [handleScroll]);
 
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files);
@@ -1104,10 +1199,59 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
               <ArrowLeft size={16} />
               В галерею
             </button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">{projectTitle}</h1>
-              <p className="text-sm text-gray-600">{projectDescription}</p>
-            </div>
+             <div>
+               {/* Редактируемое название */}
+               <div className="flex items-center">
+                 {isEditingTitle ? (
+                   <input
+                     type="text"
+                     value={projectTitle}
+                     onChange={(e) => setProjectTitle(e.target.value)}
+                     onKeyDown={handleTitleSave}
+                     onBlur={handleTitleSave}
+                     className="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-blue-500 outline-none"
+                     autoFocus
+                     placeholder="Введите название комикса"
+                   />
+                 ) : (
+                   <h1 
+                     className={`text-2xl font-bold text-gray-800 ${!isReadOnly ? 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded' : ''}`}
+                     onClick={handleTitleClick}
+                     title={!isReadOnly ? 'Кликните чтобы редактировать' : ''}
+                   >
+                     {projectTitle}
+                   </h1>
+                 )}
+                 {isReadOnly && <span className="ml-2 text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded">👁️ Только просмотр</span>}
+               </div>
+               
+               {/* Редактируемое описание */}
+               <div className="flex items-center">
+                 {isEditingDescription ? (
+                   <input
+                     type="text"
+                     value={projectDescription}
+                     onChange={(e) => setProjectDescription(e.target.value)}
+                     onKeyDown={handleDescriptionSave}
+                     onBlur={handleDescriptionSave}
+                     className="text-sm text-gray-600 bg-transparent border-b border-blue-400 outline-none"
+                     autoFocus
+                     placeholder="Введите описание комикса"
+                   />
+                 ) : (
+                   <p 
+                     className={`text-sm text-gray-600 ${!isReadOnly ? 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded' : ''}`}
+                     onClick={handleDescriptionClick}
+                     title={!isReadOnly ? 'Кликните чтобы редактировать' : ''}
+                   >
+                     {projectDescription}
+                   </p>
+                 )}
+                 {initialProject && (
+                   <span className="ml-2 text-gray-500">• Автор: {initialProject.authorName}</span>
+                 )}
+               </div>
+             </div>
           </div>
           <div className="flex gap-3">
             <button
@@ -1178,11 +1322,51 @@ const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }:
 
             <button
               onClick={disperseNodes}
-              className="w-full flex items-center gap-2 p-2 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors"
+              className="w-full flex items-center gap-2 p-2 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors mb-2"
             >
               <ArrowLeft size={16} className="rotate-45" />
               Разбросать ноды по кругу
             </button>
+
+            {/* Загрузка превью */}
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleThumbnailUpload}
+                style={{ display: 'none' }}
+                id="thumbnail-upload"
+                disabled={isReadOnly}
+              />
+              <button
+                onClick={() => document.getElementById('thumbnail-upload')?.click()}
+                className="w-full flex items-center gap-2 p-2 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 transition-colors"
+                disabled={isReadOnly}
+              >
+                <Upload size={16} />
+                Загрузить превью
+              </button>
+              
+              {/* Отображение текущего превью */}
+              {projectThumbnail && (
+                <div className="relative">
+                  <img 
+                    src={projectThumbnail} 
+                    alt="Превью комикса" 
+                    className="w-full h-20 object-cover rounded border-2 border-purple-200"
+                  />
+                  {!isReadOnly && (
+                    <button
+                      onClick={() => setProjectThumbnail('')}
+                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                      title="Удалить превью"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             
             <div className="mt-3 text-xs text-blue-600 bg-blue-50 p-2 rounded">
               💡 Новые ноды появляются рядом с выделенной
