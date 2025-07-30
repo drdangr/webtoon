@@ -424,18 +424,51 @@ const NodeComponent = ({
   return null;
 };
 
-const WebtoonsGraphEditor = () => {
+interface WebtoonsGraphEditorProps {
+  initialProject?: {
+    id: string;
+    title: string;
+    description: string;
+    nodes: any;
+    edges: any;
+    images: any;
+  } | null;
+  onSaveProject: (projectData: { nodes: any; edges: any; images: any; title?: string; description?: string }) => void;
+  onBackToGallery: () => void;
+}
+
+const WebtoonsGraphEditor = ({ initialProject, onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
   const [mode, setMode] = useState('constructor');
-  const [images, setImages] = useState({});
-  const [nodes, setNodes] = useState({
-    'start': {
-      id: 'start',
-      type: 'start',
-      position: { x: 1000, y: 300 },
-      data: { title: 'Начало' }
+  const [images, setImages] = useState(() => {
+    if (initialProject?.images && Object.keys(initialProject.images).length > 0) {
+      return initialProject.images;
     }
+    return {};
   });
-  const [edges, setEdges] = useState([]);
+  const [projectTitle, setProjectTitle] = useState(initialProject?.title || 'Новый комикс');
+  const [projectDescription, setProjectDescription] = useState(initialProject?.description || 'Описание комикса');
+  
+  // Инициализируем nodes и edges из проекта или дефолтными значениями
+  const [nodes, setNodes] = useState(() => {
+    if (initialProject?.nodes && Object.keys(initialProject.nodes).length > 0) {
+      return initialProject.nodes;
+    }
+    return {
+      'start': {
+        id: 'start',
+        type: 'start',
+        position: { x: 1000, y: 300 },
+        data: { title: 'Начало' }
+      }
+    };
+  });
+  
+  const [edges, setEdges] = useState(() => {
+    if (initialProject?.edges && Array.isArray(initialProject.edges)) {
+      return initialProject.edges;
+    }
+    return [];
+  });
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [lastAddedNodeId, setLastAddedNodeId] = useState(null);
   const [choiceHistory, setChoiceHistory] = useState([]);
@@ -467,6 +500,26 @@ const WebtoonsGraphEditor = () => {
       document.head.removeChild(style);
     };
   }, []);
+
+  // Автосохранение проекта при изменениях
+  React.useEffect(() => {
+    // Не сохраняем при первой загрузке
+    if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) {
+      return;
+    }
+    
+    const timeoutId = setTimeout(() => {
+      onSaveProject({
+        nodes,
+        edges,
+        images,
+        title: projectTitle,
+        description: projectDescription
+      });
+    }, 1000); // Сохраняем через 1 секунду после последнего изменения
+    
+    return () => clearTimeout(timeoutId);
+  }, [nodes, edges, images, projectTitle, projectDescription, onSaveProject]);
 
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files);
@@ -1043,7 +1096,19 @@ const WebtoonsGraphEditor = () => {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow-sm border-b p-4">
         <div className="flex items-center justify-between max-w-full mx-auto">
-          <h1 className="text-2xl font-bold text-gray-800">Web-toons Граф-Конструктор</h1>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onBackToGallery}
+              className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <ArrowLeft size={16} />
+              В галерею
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-800">{projectTitle}</h1>
+              <p className="text-sm text-gray-600">{projectDescription}</p>
+            </div>
+          </div>
           <div className="flex gap-3">
             <button
               onClick={switchToViewer}
