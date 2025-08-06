@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer } from 'lucide-react';
+import { useLanguage, LanguageSwitcher } from './LanguageContext';
 
 // Интерфейс для кликабельных областей (хотспотов) на изображениях
 interface Hotspot {
@@ -445,6 +446,7 @@ interface WebtoonsGraphEditorProps {
 }
 
 const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
+  const { t } = useLanguage();
   const [mode, setMode] = useState('constructor');
   const [images, setImages] = useState(() => {
     if (initialProject?.images && Object.keys(initialProject.images).length > 0) {
@@ -452,8 +454,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
     }
     return {};
   });
-  const [projectTitle, setProjectTitle] = useState(initialProject?.title || 'Новый комикс');
-  const [projectDescription, setProjectDescription] = useState(initialProject?.description || 'Описание комикса');
+  const [projectTitle, setProjectTitle] = useState(initialProject?.title || t.editor.newComic);
+  const [projectDescription, setProjectDescription] = useState(initialProject?.description || t.editor.comicDescription);
   const [projectThumbnail, setProjectThumbnail] = useState(initialProject?.thumbnail || '');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
@@ -468,7 +470,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
         id: 'start',
         type: 'start',
         position: { x: 1000, y: 300 },
-        data: { title: 'Начало' }
+        data: { title: t.editor.graph.startNode }
       }
     };
   });
@@ -774,7 +776,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
       position,
       data: { 
         imageId,
-        caption: images[imageId]?.name || 'Картинка'
+        caption: images[imageId]?.name || t.editor.graph.noImage
       }
     };
     
@@ -851,8 +853,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
       type: 'choice',
       position,
       data: { 
-        title: 'Выберите действие:',
-        options: ['Вариант 1', 'Вариант 2'],
+        title: t.editor.graph.chooseAction,
+        options: [t.editor.graph.variant + ' 1', t.editor.graph.variant + ' 2'],
         hotspots: {} as Record<string, Hotspot>  // Массив кликабельных областей
       }
     };
@@ -1120,10 +1122,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
             >
               <ArrowLeft size={16} />
-              Назад к конструктору
+              {t.viewer.backToConstructor}
             </button>
             <div className="text-sm">
-              Изображений в истории: {viewerPath.filter(item => item.type === 'image').length}
+              {t.viewer.imagesInStory}: {viewerPath.filter(item => item.type === 'image').length}
             </div>
           </div>
         </div>
@@ -1131,7 +1133,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
         <div className="max-w-4xl mx-auto">
           {viewerPath.length === 0 ? (
             <div className="text-white text-center py-20">
-              <p>История пуста. Добавьте контент в граф.</p>
+              <p>{t.viewer.storyEmpty}</p>
             </div>
           ) : (
             <div className="space-y-1">
@@ -1176,7 +1178,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               {viewerPath.length > 0 && (
                 <div className="text-center py-8 text-gray-500">
                   <div className="inline-block px-4 py-2 bg-gray-800 rounded">
-                    Конец истории
+                    {t.viewer.endOfStory}
                   </div>
                 </div>
               )}
@@ -1197,7 +1199,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
             >
               <ArrowLeft size={16} />
-              В галерею
+              {t.editor.backToGallery}
             </button>
              <div>
                {/* Редактируемое название */}
@@ -1209,20 +1211,20 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                      onChange={(e) => setProjectTitle(e.target.value)}
                      onKeyDown={handleTitleSave}
                      onBlur={handleTitleSave}
-                     className="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-blue-500 outline-none"
-                     autoFocus
-                     placeholder="Введите название комикса"
+                                         className="text-2xl font-bold text-gray-800 bg-transparent border-b-2 border-blue-500 outline-none"
+                    autoFocus
+                    placeholder={t.editor.enterTitle}
                    />
                  ) : (
                    <h1 
                      className={`text-2xl font-bold text-gray-800 ${!isReadOnly ? 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded' : ''}`}
                      onClick={handleTitleClick}
-                     title={!isReadOnly ? 'Кликните чтобы редактировать' : ''}
-                   >
-                     {projectTitle}
-                   </h1>
-                 )}
-                 {isReadOnly && <span className="ml-2 text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded">👁️ Только просмотр</span>}
+                                         title={!isReadOnly ? t.editor.clickToEdit : ''}
+                  >
+                    {projectTitle}
+                  </h1>
+                )}
+                {isReadOnly && <span className="ml-2 text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded">{t.editor.readOnly}</span>}
                </div>
                
                {/* Редактируемое описание */}
@@ -1234,32 +1236,33 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                      onChange={(e) => setProjectDescription(e.target.value)}
                      onKeyDown={handleDescriptionSave}
                      onBlur={handleDescriptionSave}
-                     className="text-sm text-gray-600 bg-transparent border-b border-blue-400 outline-none"
-                     autoFocus
-                     placeholder="Введите описание комикса"
+                                         className="text-sm text-gray-600 bg-transparent border-b border-blue-400 outline-none"
+                    autoFocus
+                    placeholder={t.editor.enterDescription}
                    />
                  ) : (
                    <p 
                      className={`text-sm text-gray-600 ${!isReadOnly ? 'cursor-pointer hover:bg-gray-100 px-2 py-1 rounded' : ''}`}
                      onClick={handleDescriptionClick}
-                     title={!isReadOnly ? 'Кликните чтобы редактировать' : ''}
-                   >
-                     {projectDescription}
-                   </p>
-                 )}
-                 {initialProject && (
-                   <span className="ml-2 text-gray-500">• Автор: {initialProject.authorName}</span>
-                 )}
+                                         title={!isReadOnly ? t.editor.clickToEdit : ''}
+                  >
+                    {projectDescription}
+                  </p>
+                )}
+                {initialProject && (
+                  <span className="ml-2 text-gray-500">• {t.author}: {initialProject.authorName}</span>
+                )}
                </div>
              </div>
           </div>
           <div className="flex gap-3">
+            <LanguageSwitcher />
             <button
               onClick={switchToViewer}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Eye size={16} />
-              Просмотр комикса
+              {t.editor.viewComic}
             </button>
           </div>
         </div>
@@ -1268,7 +1271,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-full">
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4">
-            <h3 className="font-semibold text-gray-800 mb-3">Пул изображений</h3>
+            <h3 className="font-semibold text-gray-800 mb-3">{t.editor.tools.imagePool}</h3>
             
             <input
               ref={fileInputRef}
@@ -1284,7 +1287,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               className="w-full flex items-center gap-2 p-2 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 transition-colors mb-3"
             >
               <Upload size={16} />
-              Загрузить изображения
+              {t.editor.tools.uploadImages}
             </button>
 
             <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -1302,14 +1305,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
           </div>
 
           <div className="bg-white rounded-lg shadow-sm p-4">
-            <h4 className="font-medium text-gray-700 mb-3">Инструменты</h4>
+            <h4 className="font-medium text-gray-700 mb-3">{t.editor.tools.tools}</h4>
             
             <button
               onClick={createChoiceNode}
               className="w-full flex items-center gap-2 p-2 bg-orange-100 text-orange-800 rounded hover:bg-orange-200 transition-colors mb-2"
             >
               <Plus size={16} />
-              Добавить выбор
+              {t.editor.tools.addChoice}
             </button>
 
             <button
@@ -1317,7 +1320,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               className="w-full flex items-center gap-2 p-2 bg-green-100 text-green-800 rounded hover:bg-green-200 transition-colors mb-2"
             >
               <MousePointer size={16} />
-              К началу (START)
+              {t.editor.tools.goToStart}
             </button>
 
             <button
@@ -1325,7 +1328,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
               className="w-full flex items-center gap-2 p-2 bg-red-100 text-red-800 rounded hover:bg-red-200 transition-colors mb-2"
             >
               <ArrowLeft size={16} className="rotate-45" />
-              Разбросать ноды по кругу
+              {t.editor.tools.disperseNodes}
             </button>
 
             {/* Загрузка превью */}
@@ -1344,7 +1347,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                 disabled={isReadOnly}
               >
                 <Upload size={16} />
-                Загрузить превью
+                {t.editor.tools.uploadThumbnail}
               </button>
               
               {/* Отображение текущего превью */}
@@ -1359,7 +1362,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                     <button
                       onClick={() => setProjectThumbnail('')}
                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
-                      title="Удалить превью"
+                      title={t.editor.tools.deleteThumbnail}
                     >
                       ×
                     </button>
@@ -1369,40 +1372,40 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
             </div>
             
             <div className="mt-3 text-xs text-blue-600 bg-blue-50 p-2 rounded">
-              💡 Новые ноды появляются рядом с выделенной
+              {t.editor.tools.contextHint}
             </div>
 
             <div className="text-xs text-gray-600 mt-4">
               <div className="mb-2">
-                <strong>Управление:</strong>
+                <strong>{t.editor.tools.controls}</strong>
               </div>
-              <div>• Клик на картинку → создать узел</div>
-              <div>• Перетаскивание → свободно перемещать ноду</div>
-              <div>• Обычный клик → выделить для контекста</div>
-              <div>• Shift+клик → выделить/связать ноды</div>
-              <div>• Ctrl+клик → отрезать от родителей</div>
-              <div>• Клик на подпись → редактировать</div>
+              <div>{t.editor.graph.hints.clickImage}</div>
+              <div>{t.editor.graph.hints.drag}</div>
+              <div>{t.editor.graph.hints.click}</div>
+              <div>{t.editor.graph.hints.shiftClick}</div>
+              <div>{t.editor.graph.hints.ctrlClick}</div>
+              <div>{t.editor.graph.hints.clickCaption}</div>
               
               <div className={`mt-2 p-2 rounded ${selectedNodeId ? 'bg-blue-100 text-blue-800' : 'bg-gray-100'}`}>
                 {selectedNodeId 
-                  ? `Выделена: ${nodes[selectedNodeId]?.type} (новые ноды появятся рядом)` 
-                  : 'Клик для выделения контекста'
+                  ? t.editor.graph.hints.selected.replace('{type}', nodes[selectedNodeId]?.type || '')
+                  : t.editor.graph.hints.notSelected
                 }
               </div>
               
               <div className="mt-2 text-xs">
-                <strong>Правила связей:</strong>
-                <div>• START → только к картинкам (1 выход)</div>
-                <div>• Картинки → 1 вход, 1 выход</div>
-                <div>• Переключатели → 1 вход, много выходов</div>
-                <div>• 🟠 точка = можно отрезать Ctrl+кликом</div>
+                <strong>{t.editor.tools.connectionRules}</strong>
+                <div>{t.editor.graph.rules.start}</div>
+                <div>{t.editor.graph.rules.images}</div>
+                <div>{t.editor.graph.rules.choices}</div>
+                <div>{t.editor.graph.rules.detachable}</div>
               </div>
               
               <div className="mt-2 text-xs">
-                <strong>Позиционирование новых нод:</strong>
-                <div>• Первая → рядом с центром</div>
-                <div>• При выделении → рядом с выделенной</div>
-                <div>• Иначе → рядом с последней добавленной</div>
+                <strong>{t.editor.tools.positioning}</strong>
+                <div>{t.editor.graph.positioning.first}</div>
+                <div>{t.editor.graph.positioning.selected}</div>
+                <div>{t.editor.graph.positioning.lastAdded}</div>
               </div>
             </div>
           </div>
@@ -1410,7 +1413,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
 
         <div className="lg:col-span-3 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4 h-96 lg:h-[400px] relative border">
-            <h2 className="text-xl font-semibold mb-4">Граф сценария</h2>
+            <h2 className="text-xl font-semibold mb-4">{t.editor.graph.title}</h2>
             
             <div 
               ref={graphScrollRef}
@@ -1553,11 +1556,11 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
             </div>
             
             <div className="mt-2 text-xs text-gray-500 flex justify-between">
-              <span>Скролл для навигации • Свободное перетаскивание нод</span>
+              <span>{t.editor.graph.scrollHint}</span>
               <span className={selectedNodeId ? 'text-blue-600 font-medium' : ''}>
                 {selectedNodeId 
-                  ? `Контекст: ${nodes[selectedNodeId]?.type} (новые ноды рядом)` 
-                  : 'Кликните на ноду для выбора контекста'
+                  ? t.editor.graph.contextSelected.replace('{type}', nodes[selectedNodeId]?.type || '')
+                  : t.editor.graph.selectContext
                 }
               </span>
             </div>
@@ -1566,7 +1569,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
           {/* Панель предпросмотра выделенной ноды */}
           <div className="bg-white rounded-lg shadow-sm p-4 border">
             <h3 className="text-lg font-semibold mb-3 text-gray-800">
-              {selectedNodeId ? 'Содержимое выделенной ноды' : 'Выберите ноду для просмотра'}
+              {selectedNodeId ? t.editor.preview.title : t.editor.preview.selectNode}
             </h3>
             
             {selectedNodeId && nodes[selectedNodeId] && (

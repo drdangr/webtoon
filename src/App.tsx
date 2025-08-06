@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import WebtoonsGraphEditor from './WebtoonsGraphEditor';
+import { LanguageProvider, useLanguage, LanguageSwitcher } from './LanguageContext';
 
 // Интерфейс пользователя
 interface User {
@@ -26,6 +27,7 @@ interface Project {
 
 // Компонент экрана входа/регистрации
 function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
+  const { t } = useLanguage();
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -36,7 +38,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
     setError('');
 
     if (!username.trim() || !password.trim()) {
-      setError('Заполните все поля');
+      setError(t.auth.fillAllFields);
       return;
     }
 
@@ -48,12 +50,12 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
       if (user) {
         onLogin(user);
       } else {
-        setError('Неверный логин или пароль');
+        setError(t.auth.wrongCredentials);
       }
     } else {
       // Регистрация
       if (users.some(u => u.username === username)) {
-        setError('Пользователь с таким именем уже существует');
+        setError(t.auth.userExists);
         return;
       }
 
@@ -73,39 +75,44 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
       <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
+        {/* Переключатель языков в правом верхнем углу */}
+        <div className="absolute top-4 right-4">
+          <LanguageSwitcher />
+        </div>
+        
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            🎨 Webtoon Gallery
+            🎨 {t.appTitle}
           </h1>
           <p className="text-gray-600">
-            {isLogin ? 'Войдите в свой аккаунт' : 'Создайте новый аккаунт'}
+            {isLogin ? t.auth.login + ' в свой аккаунт' : t.auth.register + ' новый аккаунт'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Имя пользователя
+              {t.auth.username}
             </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Введите имя пользователя"
+              placeholder={t.auth.enterUsername}
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Пароль
+              {t.auth.password}
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Введите пароль"
+              placeholder={t.auth.enterPassword}
             />
           </div>
 
@@ -119,7 +126,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
             type="submit"
             className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
           >
-            {isLogin ? 'Войти' : 'Зарегистрироваться'}
+            {isLogin ? t.auth.loginButton : t.auth.registerButton}
           </button>
         </form>
 
@@ -133,15 +140,12 @@ function AuthScreen({ onLogin }: { onLogin: (user: User) => void }) {
             }}
             className="text-blue-600 hover:text-blue-700 text-sm"
           >
-            {isLogin 
-              ? 'Нет аккаунта? Зарегистрируйтесь' 
-              : 'Уже есть аккаунт? Войдите'
-            }
+            {isLogin ? t.auth.switchToRegister : t.auth.switchToLogin}
           </button>
         </div>
 
         <div className="mt-6 text-xs text-gray-500 text-center">
-          ⚠️ Демо-режим: данные хранятся локально в браузере
+          {t.auth.demoMode}
         </div>
       </div>
     </div>
@@ -157,6 +161,7 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
   onDeleteProject: (id: string) => void;
   onLogout: () => void;
 }) {
+  const { t } = useLanguage();
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
@@ -164,29 +169,32 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
         <div className="flex items-center justify-between mb-8">
           <div className="text-center flex-1">
             <h1 className="text-4xl font-bold text-gray-800 mb-4">
-              🎨 Галерея веб-комиксов
+              🎨 {t.gallery.title}
             </h1>
             <p className="text-lg text-gray-600 mb-6">
-              Создавайте и управляйте своими интерактивными комиксами
+              {t.gallery.subtitle}
             </p>
             <button
               onClick={onNewProject}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
             >
-              ➕ Создать новый комикс
+              {t.gallery.createNew}
             </button>
           </div>
           
-          {/* Информация о пользователе */}
-          <div className="bg-white rounded-lg shadow-sm p-4 ml-8">
-            <div className="text-sm text-gray-600 mb-2">Добро пожаловать!</div>
-            <div className="font-semibold text-gray-800 mb-3">👤 {currentUser.username}</div>
-            <button
-              onClick={onLogout}
-              className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-            >
-              Выйти
-            </button>
+          {/* Информация о пользователе и переключатель языков */}
+          <div className="flex items-center gap-4">
+            <LanguageSwitcher />
+            <div className="bg-white rounded-lg shadow-sm p-4">
+              <div className="text-sm text-gray-600 mb-2">{t.gallery.welcomeBack}</div>
+              <div className="font-semibold text-gray-800 mb-3">👤 {currentUser.username}</div>
+              <button
+                onClick={onLogout}
+                className="text-sm px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+              >
+                {t.logout}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -206,7 +214,7 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
                     className="w-full h-full object-cover rounded-lg"
                   />
                 ) : (
-                  <div className="text-gray-400 text-sm">Нет превью</div>
+                  <div className="text-gray-400 text-sm">{t.gallery.noThumbnail}</div>
                 )}
               </div>
 
@@ -218,10 +226,10 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
                 {project.description}
               </p>
               <div className="text-xs text-gray-500 mb-1">
-                👤 Автор: {project.authorName}
+                👤 {t.author}: {project.authorName}
               </div>
               <p className="text-xs text-gray-500 mb-3">
-                Изменен: {new Date(project.modifiedDate).toLocaleDateString()}
+                {t.gallery.modified}: {new Date(project.modifiedDate).toLocaleDateString()}
               </p>
 
               {/* Действия */}
@@ -233,13 +241,13 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
                       onClick={() => onEditProject(project)}
                       className="flex-1 px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200 transition-colors"
                     >
-                      Редактировать
+                      {t.gallery.editProject}
                     </button>
                     <button
                       onClick={() => onDeleteProject(project.id)}
                       className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 transition-colors"
                     >
-                      🗑️
+                      {t.gallery.deleteProject}
                     </button>
                   </>
                 ) : (
@@ -248,7 +256,7 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
                     onClick={() => onEditProject(project)}
                     className="flex-1 px-3 py-1 bg-green-100 text-green-700 rounded text-sm hover:bg-green-200 transition-colors"
                   >
-                    👁️ Просмотр
+                    {t.gallery.viewProject}
                   </button>
                 )}
               </div>
@@ -261,16 +269,16 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
           <div className="text-center py-16">
             <div className="text-6xl mb-4">🎭</div>
             <h3 className="text-xl font-semibold text-gray-700 mb-2">
-              Пока нет комиксов
+              {t.gallery.empty.title}
             </h3>
             <p className="text-gray-500 mb-6">
-              Создайте свой первый интерактивный комикс!
+              {t.gallery.empty.subtitle}
             </p>
             <button
               onClick={onNewProject}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
             >
-              Начать создание
+              {t.gallery.empty.button}
             </button>
           </div>
         )}
@@ -279,7 +287,8 @@ function Gallery({ projects, currentUser, onNewProject, onEditProject, onDeleteP
   );
 }
 
-export default function App() {
+function AppContent() {
+  const { t } = useLanguage();
   const [currentView, setCurrentView] = useState<'gallery' | 'editor'>('gallery');
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
@@ -292,10 +301,10 @@ export default function App() {
       try {
         setUser(JSON.parse(savedUser));
       } catch (error) {
-        console.error('Ошибка загрузки пользователя:', error);
+        console.error(t.errors.loadingUser + ':', error);
       }
     }
-  }, []);
+  }, [t.errors.loadingUser]);
 
   // Загрузка проектов из localStorage при старте
   useEffect(() => {
@@ -304,10 +313,10 @@ export default function App() {
       try {
         setProjects(JSON.parse(savedProjects));
       } catch (error) {
-        console.error('Ошибка загрузки проектов:', error);
+        console.error(t.errors.loadingProjects + ':', error);
       }
     }
-  }, []);
+  }, [t.errors.loadingProjects]);
 
   // Сохранение проектов в localStorage
   const saveProjects = (updatedProjects: Project[]) => {
@@ -319,8 +328,8 @@ export default function App() {
   const handleNewProject = () => {
     const newProject: Project = {
       id: `project-${Date.now()}`,
-      title: 'Новый комикс',
-      description: 'Описание комикса',
+      title: t.editor.newComic,
+      description: t.editor.comicDescription,
       createdDate: new Date().toISOString(),
       modifiedDate: new Date().toISOString(),
       nodes: {},
@@ -347,11 +356,11 @@ export default function App() {
     
     // Проверяем, что пользователь - автор проекта
     if (project.authorId !== user.id) {
-      alert('Вы можете удалять только свои проекты!');
+      alert(t.gallery.onlyAuthorCanDelete);
       return;
     }
     
-    if (confirm('Вы уверены, что хотите удалить этот проект?')) {
+    if (confirm(t.gallery.deleteConfirm)) {
       const updatedProjects = projects.filter(p => p.id !== id);
       saveProjects(updatedProjects);
     }
@@ -430,5 +439,13 @@ export default function App() {
       onSaveProject={handleSaveProject}
       onBackToGallery={handleBackToGallery}
     />
+  );
+}
+
+export default function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }
