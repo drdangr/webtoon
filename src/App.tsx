@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import WebtoonsGraphEditor from './WebtoonsGraphEditor';
 import { LanguageProvider, useLanguage, LanguageSwitcher } from './LanguageContext';
+import { TestSupabase } from './components/TestSupabase';
 
 // Интерфейс пользователя
 interface User {
@@ -412,6 +413,12 @@ function AppContent() {
     setCurrentView('gallery');
     setCurrentProject(null);
   };
+
+  // ВРЕМЕННО: Тестирование подключения к Supabase
+  const testSupabase = false; // Измените на true для тестирования
+  if (testSupabase) {
+    return <TestSupabase />;
+  }
 
   // Проверка авторизации
   if (!user) {

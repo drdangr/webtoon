@@ -449,9 +449,16 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
   const { t } = useLanguage();
   const [mode, setMode] = useState('constructor');
   const [images, setImages] = useState(() => {
+    // Сначала пробуем получить изображения из отдельного объекта images
     if (initialProject?.images && Object.keys(initialProject.images).length > 0) {
+      console.log('🖼️ Инициализация изображений из initialProject.images:', {
+        count: Object.keys(initialProject.images).length,
+        ids: Object.keys(initialProject.images)
+      });
       return initialProject.images;
     }
+    
+    console.log('🖼️ Нет изображений для инициализации');
     return {};
   });
   const [projectTitle, setProjectTitle] = useState(initialProject?.title || t.editor.newComic);

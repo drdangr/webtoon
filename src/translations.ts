@@ -36,6 +36,18 @@ export interface Translations {
     enterUsername: string;
     enterPassword: string;
     demoMode: string;
+    signIn: string;
+    signUp: string;
+    noAccount: string;
+    haveAccount: string;
+    usernameRequired: string;
+    registrationSuccess: string;
+    emailAlreadyRegistered: string;
+    invalidCredentials: string;
+    or: string;
+    signInWithGitHub: string;
+    agreementText: string;
+    demoWarning: string;
   };
   
   // Галерея
@@ -202,6 +214,18 @@ export const translations: Record<Language, Translations> = {
       enterUsername: 'Введите имя пользователя',
       enterPassword: 'Введите пароль',
       demoMode: '⚠️ Демо-режим: данные хранятся локально в браузере',
+      signIn: 'Вход в систему',
+      signUp: 'Регистрация',
+      noAccount: 'Нет аккаунта?',
+      haveAccount: 'Уже есть аккаунт?',
+      usernameRequired: 'Имя пользователя обязательно',
+      registrationSuccess: 'Регистрация успешна! Проверьте вашу почту для подтверждения.',
+      emailAlreadyRegistered: 'Этот email уже зарегистрирован',
+      invalidCredentials: 'Неверный email или пароль',
+      or: 'или',
+      signInWithGitHub: 'Войти через GitHub',
+      agreementText: 'Регистрируясь, вы соглашаетесь с условиями использования',
+      demoWarning: 'Полноценная версия с базой данных Supabase',
     },
     
     // Галерея
@@ -359,6 +383,18 @@ export const translations: Record<Language, Translations> = {
       enterUsername: "Введіть ім'я користувача",
       enterPassword: 'Введіть пароль',
       demoMode: '⚠️ Демо-режим: дані зберігаються локально в браузері',
+      signIn: 'Вхід до системи',
+      signUp: 'Реєстрація',
+      noAccount: 'Немає акаунту?',
+      haveAccount: 'Вже є акаунт?',
+      usernameRequired: "Ім'я користувача обов'язкове",
+      registrationSuccess: 'Реєстрація успішна! Перевірте вашу пошту для підтвердження.',
+      emailAlreadyRegistered: 'Цей email вже зареєстровано',
+      invalidCredentials: 'Неправильний email або пароль',
+      or: 'або',
+      signInWithGitHub: 'Увійти через GitHub',
+      agreementText: 'Реєструючись, ви погоджуєтеся з умовами використання',
+      demoWarning: 'Повноцінна версія з базою даних Supabase',
     },
     
     // Галерея
@@ -516,6 +552,18 @@ export const translations: Record<Language, Translations> = {
       enterUsername: 'Enter username',
       enterPassword: 'Enter password',
       demoMode: '⚠️ Demo mode: data is stored locally in browser',
+      signIn: 'Sign In',
+      signUp: 'Sign Up',
+      noAccount: "Don't have an account?",
+      haveAccount: 'Already have an account?',
+      usernameRequired: 'Username is required',
+      registrationSuccess: 'Registration successful! Check your email for confirmation.',
+      emailAlreadyRegistered: 'This email is already registered',
+      invalidCredentials: 'Invalid email or password',
+      or: 'or',
+      signInWithGitHub: 'Sign in with GitHub',
+      agreementText: 'By signing up, you agree to our terms of service',
+      demoWarning: 'Full version with Supabase database',
     },
     
     // Галерея
