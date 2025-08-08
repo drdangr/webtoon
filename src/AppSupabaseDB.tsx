@@ -10,6 +10,7 @@ import { storageService } from './services/storage.service';
 import type { Profile, Project, Genre } from './lib/database.types';
 import { ArrowLeft } from 'lucide-react';
 import { supabase } from './lib/supabase';
+import { getLocalizedGenreName } from './utils/genreTranslations';
 
 // Расширенный интерфейс проекта с дополнительными данными
 interface ProjectWithData extends Project {
@@ -41,7 +42,7 @@ function Gallery({
   onOpenAuthor: (username: string) => void;
   refreshKey?: number;
 }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [projects, setProjects] = useState<ProjectWithData[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,7 +210,7 @@ function Gallery({
                 onClick={() => setSelectedGenre(null)}
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${!selectedGenre ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}
               >
-                Все жанры
+                {t.gallery.allGenres || (language === 'ru' ? 'Все жанры' : language === 'uk' ? 'Усі жанри' : 'All genres')}
               </button>
               {genres.map(genre => (
                 <button
@@ -219,16 +220,16 @@ function Gallery({
                   title={genre.name}
                 >
                   <span className="mr-1">{genre.icon}</span>
-                  {genre.name}
+                  {getLocalizedGenreName(genre.slug || genre.name, language)}
                 </button>
               ))}
             </div>
           )}
 
           <div className="flex gap-2">
-            <button onClick={() => setSortBy('created_at')} className={`px-3 py-2 rounded-lg border ${sortBy==='created_at' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Новые</button>
-            <button onClick={() => setSortBy('view_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='view_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Просмотры</button>
-            <button onClick={() => setSortBy('like_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='like_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Лайки</button>
+            <button onClick={() => setSortBy('created_at')} className={`px-3 py-2 rounded-lg border ${sortBy==='created_at' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>{t.gallery.sort.newest}</button>
+            <button onClick={() => setSortBy('view_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='view_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>{t.gallery.sort.views}</button>
+            <button onClick={() => setSortBy('like_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='like_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>{t.gallery.sort.likes}</button>
           </div>
         </div>
 
@@ -245,14 +246,14 @@ function Gallery({
         </button>
 
         {/* Список проектов */}
-        {loading ? (
+          {loading ? (
           <div className="flex justify-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
           </div>
-        ) : projects.length === 0 ? (
+          ) : projects.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-white/80 text-lg">{t.gallery.noProjects}</p>
-            <p className="text-white/50 mt-2">{t.gallery.createFirst}</p>
+              <p className="text-white/80 text-lg">{t.gallery.empty.title}</p>
+              <p className="text-white/50 mt-2">{t.gallery.empty.subtitle}</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
@@ -277,7 +278,7 @@ function Gallery({
                   )}
                   {project.genre && (
                     <div className="absolute top-3 left-3 px-2.5 py-1.5 rounded-full text-white text-xs font-medium bg-black/50 border border-white/10">
-                      {project.genre.icon} {project.genre.name}
+                      {project.genre.icon} {getLocalizedGenreName(project.genre.slug || project.genre.name, language)}
                     </div>
                   )}
                 </div>
@@ -426,7 +427,7 @@ function AppContent() {
 
       // Создаем новый проект в БД
       const newProject = await projectsService.createProject({
-        title: t.editor.newProjectTitle || 'Новый комикс',
+        title: t.editor.newComic || 'Новый комикс',
         description: t.editor.comicDescription || '',
         genre_id: defaultGenre?.id,
         nodes: {},
@@ -462,9 +463,7 @@ function AppContent() {
     // Увеличиваем счетчик просмотров и синхронизируем UI с БД
     try {
       const newCount = await projectsService.incrementViewCount(project.id);
-      if (typeof newCount === 'number') {
-        setProjects(prev => prev.map(p => p.id === project.id ? { ...p, view_count: newCount } : p));
-      }
+      // обновление галереи здесь не требуется, список хранится выше; оставляем без setProjects
     } catch (e) {
       console.warn('Не удалось инкрементировать просмотры:', e);
     }
@@ -746,7 +745,7 @@ function AppContent() {
   // Редактор
   return (
     <WebtoonsGraphEditor
-      initialProject={currentProject ? {
+      initialProject={currentProject ? ({
         id: currentProject.id,
         title: currentProject.title,
         description: currentProject.description || '',
@@ -754,10 +753,8 @@ function AppContent() {
         edges: currentProject.edges || [],
         images: currentProject.images || {},
         authorId: currentProject.user_id,
-        authorName: currentProject.author?.username || 'Unknown',
-        is_public: currentProject.is_public,
-        is_published: currentProject.is_published
-      } : null}
+        authorName: currentProject.author?.username || 'Unknown'
+      } as any) : null}
       currentUser={{
         id: session.user.id,
         username: profile?.username || session.user.email || 'User'

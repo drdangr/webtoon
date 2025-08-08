@@ -56,6 +56,8 @@ export interface Translations {
     subtitle: string;
     createNew: string;
     welcomeBack: string;
+    allGenres?: string;
+    sort: { newest: string; views: string; likes: string };
     editProject: string;
     deleteProject: string;
     viewProject: string;
@@ -239,6 +241,8 @@ export const translations: Record<Language, Translations> = {
       subtitle: 'Создавайте и управляйте своими интерактивными комиксами',
       createNew: '➕ Создать новый комикс',
       welcomeBack: 'Добро пожаловать!',
+      allGenres: 'Все жанры',
+      sort: { newest: 'Новые', views: 'Просмотры', likes: 'Лайки' },
       editProject: 'Редактировать',
       deleteProject: '🗑️',
       viewProject: '👁️ Просмотр',
@@ -413,6 +417,8 @@ export const translations: Record<Language, Translations> = {
       subtitle: 'Створюйте та керуйте своїми інтерактивними коміксами',
       createNew: '➕ Створити новий комікс',
       welcomeBack: 'Ласкаво просимо!',
+      allGenres: 'Усі жанри',
+      sort: { newest: 'Нові', views: 'Перегляди', likes: 'Лайки' },
       editProject: 'Редагувати',
       deleteProject: '🗑️',
       viewProject: '👁️ Перегляд',
@@ -587,6 +593,8 @@ export const translations: Record<Language, Translations> = {
       subtitle: 'Create and manage your interactive comics',
       createNew: '➕ Create new comic',
       welcomeBack: 'Welcome back!',
+      allGenres: 'All genres',
+      sort: { newest: 'Newest', views: 'Views', likes: 'Likes' },
       editProject: 'Edit',
       deleteProject: '🗑️',
       viewProject: '👁️ View',
