@@ -34,7 +34,7 @@ class ProjectsService {
    * Получение списка проектов с фильтрами
    */
   async getProjects(filters: ProjectFilters = {}): Promise<{
-    projects: ProjectWithRelations[];
+    projects: (ProjectWithRelations & { is_liked?: boolean })[];
     total: number;
   }> {
     try {
@@ -101,6 +101,22 @@ class ProjectsService {
           };
         })
       );
+
+      // Добавляем is_liked для текущего пользователя за один запрос
+      const user = await authService.getCurrentUser();
+      if (user && projectsWithRelations.length > 0) {
+        const projectIds = projectsWithRelations.map(p => p.id);
+        const { data: likesData } = await supabase
+          .from('likes')
+          .select('project_id')
+          .in('project_id', projectIds)
+          .eq('user_id', user.id);
+
+        const likedSet = new Set((likesData || []).map(l => l.project_id));
+        projectsWithRelations.forEach((p: any) => {
+          p.is_liked = likedSet.has(p.id);
+        });
+      }
 
       return {
         projects: projectsWithRelations,
@@ -450,6 +466,53 @@ class ProjectsService {
   }
 
   /**
+   * Поставить/снять лайк к проекту текущим пользователем
+   */
+  async toggleLike(projectId: string): Promise<{ liked: boolean; likeCount?: number }> {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Проверяем, есть ли лайк
+      const { data: existingLike } = await supabase
+        .from('likes')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (existingLike) {
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('id', existingLike.id);
+        if (error) throw error;
+        // читаем актуальный счетчик из projects
+        const { data: proj } = await supabase
+          .from('projects')
+          .select('like_count')
+          .eq('id', projectId)
+          .single();
+        return { liked: false, likeCount: proj?.like_count };
+      } else {
+        const { error } = await supabase
+          .from('likes')
+          .insert({ project_id: projectId, user_id: user.id });
+        if (error) throw error;
+        const { data: proj } = await supabase
+          .from('projects')
+          .select('like_count')
+          .eq('id', projectId)
+          .single();
+        return { liked: true, likeCount: proj?.like_count };
+      }
+    } catch (error: any) {
+      console.error('ToggleLike error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Загрузка изображений в Storage и получение URL
    */
   private async uploadImagesToStorage(
@@ -785,19 +848,38 @@ class ProjectsService {
   /**
    * Инкремент счетчика просмотров
    */
-  async incrementViewCount(projectId: string, sessionId?: string): Promise<void> {
+  async incrementViewCount(projectId: string, sessionId?: string): Promise<number | null> {
     try {
       const user = await authService.getCurrentUser();
-      
-      const { error } = await supabase.rpc('increment_view_count', {
-        p_project_id: projectId,
-        p_user_id: user?.id || null,
-        p_session_id: sessionId || null
+      const clientSessionId = sessionId || (() => {
+        const key = 'viewer-session-id';
+        let val = localStorage.getItem(key);
+        if (!val) {
+          val = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          localStorage.setItem(key, val);
+        }
+        return val;
+      })();
+
+      // Прямо пишем в views; триггер увеличит счётчик в projects
+      await supabase.from('views').insert({
+        project_id: projectId,
+        user_id: user?.id || null,
+        session_id: clientSessionId,
+        referrer: (typeof document !== 'undefined' ? document.referrer : null) as any,
+        user_agent: (typeof navigator !== 'undefined' ? navigator.userAgent : null) as any
       });
 
-      if (error) throw error;
+      // Читаем актуальный счётчик
+      const { data: proj } = await supabase
+        .from('projects')
+        .select('view_count')
+        .eq('id', projectId)
+        .single();
+      return proj?.view_count ?? null;
     } catch (error: any) {
       console.error('IncrementViewCount error:', error);
+      return null;
     }
   }
 

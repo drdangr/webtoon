@@ -1,19 +1,20 @@
 # Webtoon Gallery & Graph Editor
 
-A comprehensive platform for creating, managing, and sharing interactive vertical comics (webtoons) with multi-language support, user authentication, and collaborative features.
+A comprehensive platform for creating, managing, and sharing interactive vertical comics (webtoons) with multi-language support, Supabase backend, social features, and real-time collaboration. Now deployed at https://webtoon-delta.vercel.app
 
 ## 🎯 Overview
 
-The Webtoon Gallery & Graph Editor is a modern web application that combines a user-friendly gallery system with a powerful visual editor for creating interactive vertical comics. Users can register accounts, create multiple projects, and design branching narratives with invisible clickable hotspots positioned directly on story images. The platform supports multiple languages (Russian, Ukrainian, English) and provides both creation and viewing modes for immersive storytelling experiences.
+The Webtoon Gallery & Graph Editor is a modern web application that combines a user-friendly gallery system with a powerful visual editor for creating interactive vertical comics. Built on Supabase backend with PostgreSQL database, the platform features real-time social interactions, user profiles, project sharing, and comprehensive analytics. Users can register accounts, create multiple projects, and design branching narratives with invisible clickable hotspots positioned directly on story images. The platform supports multiple languages (Russian, Ukrainian, English) and provides both creation and viewing modes for immersive storytelling experiences.
 
 ## ✨ Features
 
-### 👤 User Management & Gallery System
-- **User Authentication**: Register and login with secure account management
-- **Project Gallery**: Browse and manage multiple webtoon projects with thumbnails
-- **Author Attribution**: Track project creators and ownership
-- **Project Sharing**: View other users' projects (read-only mode for non-authors)
-- **Local Storage**: Demo mode with browser-based data persistence
+### 👤 User Management & Social Features
+- **Supabase Authentication**: Secure registration with email/password and GitHub OAuth
+- **User Profiles**: Complete profile system with avatars, bio, and statistics
+- **Project Gallery**: Browse and manage multiple webtoon projects with thumbnails and social metrics
+- **Social Interactions**: Like projects, view counts, and user following system
+- **Real-time Updates**: Live social metrics and interaction feedback
+- **Author Attribution**: Track project creators with detailed author profiles
 
 ### 🌐 Multi-Language Support
 - **Language Switcher**: Toggle between Russian, Ukrainian, and English
@@ -22,10 +23,12 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Real-time Switching**: Change language without losing work
 
 ### 🎨 Visual Story Creation
-- **Image Pool Management**: Upload and organize story images with drag-and-drop functionality
+- **Supabase Storage Integration**: Upload and organize story images with cloud storage
 - **Interactive Graph Interface**: Visual node-based editor for story flow design
 - **Real-time Preview**: Live preview of selected nodes with full-width image display
-- **Project Metadata**: Editable titles, descriptions, and thumbnail images
+- **Project Metadata**: Editable titles, descriptions, genres, and thumbnail images
+- **Genre System**: Categorize projects with 10 predefined genres (Romance, Adventure, Fantasy, etc.)
+- **Auto-save**: Automatic project versioning with Supabase backend
 
 ### 🌟 Story Flow Control
 - **Branching Narratives**: Create choice nodes for interactive storytelling
@@ -33,6 +36,7 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **START Node**: Dedicated starting point for story navigation
 - **Connection System**: Link nodes with visual arrows to create story paths
 - **Node Management**: Add, delete, and reposition story elements
+- **Version Control**: Track project changes with automatic versioning system
 
 ### 🛠 Editor Tools
 - **Add Choice Button**: Insert decision points for story branching
@@ -46,6 +50,7 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Responsive Interface**: Works seamlessly across devices
 - **Touch-friendly Controls**: Intuitive interaction patterns
 - **Dual Mode System**: Constructor mode for editing, viewer mode for testing interactive stories
+- **Production Ready**: Deployed on Vercel with global CDN
 
 ## 🚀 Getting Started
 
@@ -71,16 +76,29 @@ npm install
 npm run dev
 ```
 
-4. Open your browser and navigate to `http://localhost:5173/webtoon/`
+4. Create `.env.local` file with Supabase credentials:
+```bash
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+5. Open your browser and navigate to `http://localhost:5173/`
+
+### Live Demo
+
+Visit the deployed application at: **https://webtoon-delta.vercel.app**
 
 ## 🎮 Usage
 
 ### Getting Started
 
-1. **Create Account**: Register a new user account or login with existing credentials
-2. **Choose Language**: Use the language switcher in the top-right to select your preferred language
-3. **Create Project**: Click "Create New Comic" to start a new webtoon project
-4. **Enter Editor**: Click on any project card to open it in the editor
+1. **Create Account**: Register with email/password or sign in with GitHub
+2. **Complete Profile**: Add your username, avatar, and bio
+3. **Choose Language**: Use the language switcher in the top-right to select your preferred language
+4. **Browse Gallery**: Explore public projects by genre, popularity, or recent uploads
+5. **Create Project**: Click "Create New Comic" to start a new webtoon project
+6. **Select Genre**: Choose from 10 available genres for your project
+7. **Enter Editor**: Click on any project card to open it in the editor
 
 ### Basic Workflow
 
@@ -98,14 +116,18 @@ npm run dev
 
 ### Gallery Management
 
-- **Browse Projects**: View all projects in the main gallery with thumbnails and author info
+- **Browse Projects**: View all projects in the main gallery with thumbnails, author info, and social metrics
+- **Filter by Genre**: Use genre filters to find specific types of content
+- **Sort Options**: Sort by newest, most popular (views), or most liked
+- **Social Interactions**: Like projects and view real-time like counts
+- **Author Profiles**: Click on authors to view their complete profiles and project collections
 - **Edit Own Projects**: Full editing access for projects you created
-- **View Others' Projects**: Read-only access to other users' projects
+- **View Others' Projects**: Read-only access to other users' projects with view tracking
 - **Delete Projects**: Remove your own projects (with confirmation)
 
 ### Navigation Controls
 - **Mouse/Touch**: Drag nodes to reposition them
-- **Zoom**: Scroll wheel to zoom in/out of the graph
+- **Zoom**: Hold Ctrl and use the mouse wheel to zoom in/out (cursor-centered)
 - **Pan**: Drag empty space to navigate the canvas
 
 ### Node Types
@@ -117,41 +139,67 @@ npm run dev
 
 ### Tech Stack
 - **Frontend**: React 18 with TypeScript
+- **Backend**: Supabase (PostgreSQL, Auth, Storage, Real-time)
 - **Styling**: Tailwind CSS
 - **Build Tool**: Vite
 - **Icons**: Lucide React
-- **State Management**: React Hooks (useState, useCallback, useContext)
+- **State Management**: React Hooks with Supabase integration
 - **Internationalization**: Custom React Context with localStorage persistence
-- **Data Storage**: Browser localStorage (demo mode)
+- **Database**: PostgreSQL with 11 tables and Row Level Security (RLS)
+- **Authentication**: Supabase Auth with GitHub OAuth and email/password
+- **File Storage**: Supabase Storage with 3 buckets (project-images, avatars, thumbnails)
+- **Deployment**: Vercel with automatic deployments
 
 ### Key Components
-- `App`: Application root with user authentication and gallery
+- `App`: Application root with Supabase authentication and gallery
+- `AppSupabaseDB`: Main application with full Supabase integration
+- `SupabaseAuth`: Authentication component with GitHub OAuth
 - `LanguageProvider`: Multi-language context provider
 - `LanguageSwitcher`: Language selection dropdown component  
-- `WebtoonsGraphEditor`: Main editor interface
+- `WebtoonsGraphEditor`: Main editor interface with cloud storage
 - `NodeComponent`: Individual story node rendering
 - `DraggableHotspot`: Interactive clickable areas with drag-and-drop positioning
 - Interactive SVG canvas for connections
 - Dynamic image preview system
+- Real-time social features integration
 
 ### Project Structure
 ```
 src/
-├── App.tsx                    # Application root & gallery
+├── App.tsx                    # Original localStorage version
+├── AppSupabase.tsx            # Supabase auth integration
+├── AppSupabaseDB.tsx          # Full Supabase integration
 ├── WebtoonsGraphEditor.tsx    # Main editor component  
 ├── LanguageContext.tsx        # Multi-language support
 ├── translations.ts            # Translation strings
-├── main.tsx                   # Entry point
-└── index.css                  # Global styles
+├── components/
+│   ├── SupabaseAuth.tsx       # Authentication component
+│   └── TestSupabase.tsx       # Supabase testing component
+├── lib/
+│   ├── supabase.ts           # Supabase client configuration
+│   └── database.types.ts     # TypeScript database types
+├── services/
+│   ├── auth.service.ts       # Authentication service
+│   ├── projects.service.ts   # Projects CRUD operations
+│   └── storage.service.ts    # File storage service
+├── utils/
+│   ├── genreTranslations.ts  # Genre localization
+│   └── slug.ts              # URL slug generation
+├── database/                 # SQL migration files
+├── main.tsx                  # Entry point
+└── index.css                 # Global styles
 ```
 
 ## 🎯 Core Features Deep Dive
 
 ### User Authentication System
-- **Account Creation**: Simple username/password registration
-- **Session Management**: Persistent login state with localStorage
-- **Project Ownership**: Users can only edit their own projects
-- **Demo Mode Warning**: Clear indication of local storage limitations
+- **Supabase Auth**: Secure authentication with JWT tokens
+- **Multiple Sign-in Methods**: Email/password and GitHub OAuth
+- **User Profiles**: Automatic profile creation with customizable information
+- **Session Management**: Persistent login state with secure token refresh
+- **Project Ownership**: Users can only edit their own projects with RLS policies
+- **Social Features**: User following, profile statistics, and public profiles
+ - **Email Confirmation Notice**: After email registration, the UI explicitly prompts users to check their inbox for confirmation
 
 ### Multi-Language System
 - **Real-time Translation**: Instant UI language switching
@@ -160,11 +208,15 @@ src/
 - **Flag Indicators**: Visual language selection with country flags
 
 ### Gallery & Project Management
-- **Project Cards**: Visual grid layout with thumbnails and metadata
-- **Author Attribution**: Clear project ownership display
-- **Access Control**: Edit/view permissions based on authorship
-- **Thumbnail System**: Custom preview images for projects
-- **Empty States**: Helpful prompts for new users
+- **Project Cards**: Visual grid layout with thumbnails, metadata, and social metrics
+- **Genre Filtering**: Filter projects by 10 predefined genres with custom icons
+- **Sorting Options**: Sort by creation date, view count, or like count
+- **Social Metrics**: Real-time view counts and like buttons with animations
+- **Author Attribution**: Clickable author profiles with statistics
+- **Access Control**: Edit/view permissions based on authorship with RLS
+- **Thumbnail System**: Custom preview images stored in Supabase Storage
+- **Real-time Updates**: Live updates of social interactions
+ - **Read-only Sandbox for Non-authors**: Non-authors can interact with the editor UI, but their changes are not persisted
 
 ### Graph Interaction System
 - **Node Selection**: Click-based selection with visual feedback
@@ -172,13 +224,16 @@ src/
 - **Drag & Drop**: Repositionable nodes with collision detection
 - **Context Awareness**: New nodes appear relative to selected nodes
 - **Auto-save**: Continuous project saving with debounce
+ - **Zoom & Persistence**: Ctrl + mouse wheel zoom centered under cursor; editor restores last scroll position and zoom level; first open centers on START
 
 ### Preview System
+- **Cloud Storage**: Images served from Supabase Storage CDN
 - **Full-width Display**: Selected images scale to container width
 - **Aspect Ratio Preservation**: Maintains image proportions
 - **Node Information**: Shows connections, position, and metadata
 - **Dynamic Sizing**: Container adapts to image dimensions
 - **Read-only Mode**: Non-authors can preview but not edit
+- **Version Control**: Access to different project versions
 
 ### Choice Node System
 - **Multiple Options**: Support for branching storylines
@@ -192,7 +247,8 @@ src/
 - **Invisible Interface**: In viewer mode, hotspots are transparent and only show labels on hover
 - **Smart Positioning**: Place hotspots over speech bubbles, characters, or objects for natural interaction
 - **Seamless Navigation**: Click hotspots to navigate through story branches without traditional UI elements
-- **Position Persistence**: Hotspot positions saved with project data
+- **Database Storage**: Hotspot positions saved in dedicated database table
+- **Analytics Tracking**: Click tracking for hotspot interaction analytics
 
 ## 🔧 Development
 
@@ -207,6 +263,9 @@ npm run preview  # Preview production build
 - `vite.config.ts`: Vite configuration
 - `tailwind.config.js`: Tailwind CSS customization
 - `tsconfig.json`: TypeScript configuration
+- `vercel.json`: Vercel deployment configuration
+- `.env.local`: Supabase environment variables (not in repo)
+- `database/`: SQL migration files for database setup
 
 ## 🤝 Contributing
 
@@ -225,7 +284,24 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Built for mobile-first webtoon creation
 - Inspired by modern visual storytelling tools
 - Optimized for interactive narrative experiences
+- Powered by Supabase for scalable backend infrastructure
+- Deployed on Vercel for global performance
+
+## 🌐 Live Application
+
+**Production URL**: https://webtoon-delta.vercel.app
+
+### Current Status
+- ✅ Full Supabase integration (Database, Auth, Storage)
+- ✅ Social features (likes, views, user profiles)
+- ✅ Genre system with 10 categories
+- ✅ Real-time interactions
+- ✅ Production deployment on Vercel
+- ✅ Multi-language support (RU/UA/EN)
+- 🚧 Comments system (planned)
+- 🚧 User following (planned)
+- 🚧 Advanced analytics (planned)
 
 ---
 
-**Ready to create your interactive webtoon story? Start building today!** 🚀
+**Ready to create your interactive webtoon story? Visit https://webtoon-delta.vercel.app and start building today!** 🚀

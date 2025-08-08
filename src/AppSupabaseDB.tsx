@@ -8,6 +8,8 @@ import { authService } from './services/auth.service';
 import { projectsService } from './services/projects.service';
 import { storageService } from './services/storage.service';
 import type { Profile, Project, Genre } from './lib/database.types';
+import { ArrowLeft } from 'lucide-react';
+import { supabase } from './lib/supabase';
 
 // Расширенный интерфейс проекта с дополнительными данными
 interface ProjectWithData extends Project {
@@ -16,6 +18,7 @@ interface ProjectWithData extends Project {
   images?: any;
   author?: Profile;
   genre?: Genre;
+  is_liked?: boolean;
 }
 
 // Компонент галереи с загрузкой из БД
@@ -26,6 +29,7 @@ function Gallery({
   onEditProject,
   onDeleteProject,
   onLogout,
+  onOpenAuthor,
   refreshKey
 }: {
   currentUser: User;
@@ -34,6 +38,7 @@ function Gallery({
   onEditProject: (project: ProjectWithData) => void;
   onDeleteProject: (projectId: string) => void;
   onLogout: () => void;
+  onOpenAuthor: (username: string) => void;
   refreshKey?: number;
 }) {
   const { t } = useLanguage();
@@ -41,10 +46,11 @@ function Gallery({
   const [genres, setGenres] = useState<Genre[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'created_at' | 'view_count' | 'like_count'>('created_at');
 
   useEffect(() => {
     loadData();
-  }, [currentUser, selectedGenre, refreshKey]);
+  }, [currentUser, selectedGenre, sortBy, refreshKey]);
 
   const loadData = async () => {
     setLoading(true);
@@ -58,13 +64,27 @@ function Gallery({
         setGenres(genresData);
       }
 
-      // Загружаем проекты пользователя
-      const { projects: projectsData, total } = await projectsService.getProjects({
-        userId: currentUser.id,
-        genreId: selectedGenre || undefined
-      });
-      
-      console.log('📁 Найдено проектов:', total);
+      // Загружаем проекты: свои (любой приватности) + публичные опубликованные
+      const [mineRes, publicRes] = await Promise.all([
+        projectsService.getProjects({
+          userId: currentUser.id,
+          genreId: selectedGenre || undefined,
+          sortBy
+        }),
+        projectsService.getProjects({
+          isPublic: true,
+          isPublished: true,
+          genreId: selectedGenre || undefined,
+          sortBy
+        })
+      ]);
+
+      // Объединяем без дублей
+      const combinedMap = new Map<string, any>();
+      for (const p of mineRes.projects) combinedMap.set(p.id, p);
+      for (const p of publicRes.projects) combinedMap.set(p.id, p);
+      const projectsData = Array.from(combinedMap.values());
+      console.log('📁 Найдено проектов:', projectsData.length);
 
       // Для каждого проекта загружаем последнюю версию
       const projectsWithData = await Promise.all(
@@ -73,7 +93,7 @@ function Gallery({
           
           // Извлекаем изображения из nodes (для галереи нужны только URL/base64 строки)
           const images: any = {};
-          const nodes = latestVersion?.nodes || {};
+          const nodes = latestVersion?.nodes ? JSON.parse(JSON.stringify(latestVersion.nodes)) : {};
           
           // Проверяем новый формат с URL (_imageUrls)
           if (nodes._imageUrls) {
@@ -124,8 +144,19 @@ function Gallery({
         })
       );
 
-      setProjects(projectsWithData);
-      console.log('✅ Проекты загружены:', projectsWithData.length);
+      // Строгая фильтрация на клиенте: свои или публичные опубликованные
+      const visible = projectsWithData.filter((p: any) => (
+        p.user_id === currentUser.id || (p.is_public && p.is_published)
+      ));
+
+      // Сортируем объединенный список по выбранному полю (на случай смешения наборов)
+      const sorted = [...visible].sort((a: any, b: any) => {
+        const aa = a[sortBy] || 0;
+        const bb = b[sortBy] || 0;
+        return bb - aa;
+      });
+      setProjects(sorted);
+      console.log('✅ Проекты загружены:', sorted.length);
     } catch (error) {
       console.error('❌ Ошибка загрузки данных:', error);
     } finally {
@@ -134,14 +165,14 @@ function Gallery({
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-[#0b0b0c]">
       {/* Заголовок с информацией о пользователе */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-[#0b0b0c] border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+          <div className="flex justify-between items-center py-6">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{t.gallery.title}</h1>
-              <p className="text-sm text-gray-600 mt-1">{t.gallery.subtitle}</p>
+              <h1 className="text-2xl font-bold text-white">{t.gallery.title}</h1>
+              <p className="text-sm text-white/60 mt-1">{t.gallery.subtitle}</p>
             </div>
             <div className="flex items-center gap-4">
               <LanguageSwitcher />
@@ -150,16 +181,16 @@ function Gallery({
                   <img 
                     src={currentProfile.avatar_url} 
                     alt={currentProfile.username}
-                    className="w-8 h-8 rounded-full"
+                    className="w-8 h-8 rounded-full ring-2 ring-white/10"
                   />
                 )}
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-white/80">
                   {currentProfile?.username || currentUser.email}
                 </span>
               </div>
               <button
                 onClick={onLogout}
-                className="px-3 py-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded"
+                className="px-3 py-1 text-sm text-white/70 hover:text-white bg-white/5 hover:bg-white/10 rounded border border-white/10"
               >
                 {t.logout}
               </button>
@@ -170,51 +201,43 @@ function Gallery({
 
       {/* Контент галереи */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Уведомление об успешной миграции */}
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-green-800">
-            ✅ <strong>Миграция завершена:</strong> Все данные теперь сохраняются в облачной базе данных Supabase!
-            Ваши проекты доступны с любого устройства.
-          </p>
+        {/* Панель фильтров */}
+        <div className="mb-8 flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
+          {genres.length > 0 && (
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => setSelectedGenre(null)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${!selectedGenre ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}
+              >
+                Все жанры
+              </button>
+              {genres.map(genre => (
+                <button
+                  key={genre.id}
+                  onClick={() => setSelectedGenre(genre.id)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${selectedGenre===genre.id ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}
+                  title={genre.name}
+                >
+                  <span className="mr-1">{genre.icon}</span>
+                  {genre.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button onClick={() => setSortBy('created_at')} className={`px-3 py-2 rounded-lg border ${sortBy==='created_at' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Новые</button>
+            <button onClick={() => setSortBy('view_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='view_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Просмотры</button>
+            <button onClick={() => setSortBy('like_count')} className={`px-3 py-2 rounded-lg border ${sortBy==='like_count' ? 'bg-white text-black border-white' : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10'}`}>Лайки</button>
+          </div>
         </div>
 
-        {/* Фильтр по жанрам */}
-        {genres.length > 0 && (
-          <div className="mb-6 flex gap-2 flex-wrap">
-            <button
-              onClick={() => setSelectedGenre(null)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                !selectedGenre 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              Все жанры
-            </button>
-            {genres.map(genre => (
-              <button
-                key={genre.id}
-                onClick={() => setSelectedGenre(genre.id)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center gap-1 ${
-                  selectedGenre === genre.id
-                    ? 'text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                style={{
-                  backgroundColor: selectedGenre === genre.id ? genre.color : undefined
-                }}
-              >
-                <span>{genre.icon}</span>
-                <span>{genre.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Удален дублирующийся блок фильтра по жанрам */}
 
         {/* Кнопка создания нового проекта */}
         <button
           onClick={onNewProject}
-          className="mb-6 w-full md:w-auto px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+          className="mb-6 w-full md:w-auto px-6 py-3 bg-white text-black rounded-lg hover:bg-gray-100 transition-colors flex items-center justify-center gap-2 border border-white"
           disabled={loading}
         >
           <span className="text-xl">➕</span>
@@ -224,38 +247,36 @@ function Gallery({
         {/* Список проектов */}
         {loading ? (
           <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
           </div>
         ) : projects.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500 text-lg">{t.gallery.noProjects}</p>
-            <p className="text-gray-400 mt-2">{t.gallery.createFirst}</p>
+            <p className="text-white/80 text-lg">{t.gallery.noProjects}</p>
+            <p className="text-white/50 mt-2">{t.gallery.createFirst}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {projects.map((project) => (
               <div
                 key={project.id}
-                className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+                className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/10 transition-colors"
               >
                 {/* Превью проекта */}
-                <div className="aspect-video bg-gray-200 relative">
+                <div className="aspect-[4/3] bg-black relative">
                   {project.thumbnail_url ? (
                     <img
                       src={project.thumbnail_url}
                       alt={project.title}
+                      loading="lazy"
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400">
-                      <span className="text-4xl">📚</span>
+                    <div className="flex items-center justify-center h-full text-white/20">
+                      <span className="text-5xl">📚</span>
                     </div>
                   )}
                   {project.genre && (
-                    <div 
-                      className="absolute top-2 left-2 px-2 py-1 rounded text-white text-xs font-medium"
-                      style={{ backgroundColor: project.genre.color }}
-                    >
+                    <div className="absolute top-3 left-3 px-2.5 py-1.5 rounded-full text-white text-xs font-medium bg-black/50 border border-white/10">
                       {project.genre.icon} {project.genre.name}
                     </div>
                   )}
@@ -263,38 +284,77 @@ function Gallery({
 
                 {/* Информация о проекте */}
                 <div className="p-4">
-                  <h3 className="font-semibold text-gray-900 truncate">{project.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                    {project.description || t.gallery.noDescription}
+                  <h3 className="font-semibold text-white truncate text-lg">{project.title}</h3>
+                  <p className="text-sm text-white/70 mt-1 line-clamp-2">
+                    {project.description || t.editor.comicDescription}
                   </p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {t.gallery.modified}: {new Date(project.updated_at).toLocaleDateString()}
-                    </span>
-                    <div className="flex gap-2 text-xs text-gray-500">
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {project.author?.avatar_url && (
+                        <img src={project.author.avatar_url} alt={project.author.username} className="w-6 h-6 rounded-full ring-1 ring-white/20" />
+                      )}
+                      <button onClick={() => project.author?.username && onOpenAuthor(project.author.username)} className="text-sm text-white/70 hover:text-white">
+                        {project.author?.username}
+                      </button>
+                    </div>
+                    <div className="flex gap-3 text-sm text-white/70">
                       <span>👁 {project.view_count}</span>
-                      <span>❤️ {project.like_count}</span>
+                      <button
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          try {
+                            const { liked, likeCount } = await projectsService.toggleLike(project.id);
+                            setProjects(prev => prev.map(p => {
+                              if (p.id !== project.id) return p;
+                              const fallback = (p.like_count || 0) + (liked ? 1 : -1);
+                              const next = typeof likeCount === 'number' ? likeCount : fallback;
+                              return { ...p, is_liked: liked, like_count: Math.max(0, next) };
+                            }));
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }}
+                        className={`hover:text-white transition-colors ${project as any && (project as any).is_liked ? 'text-red-400' : ''}`}
+                        title={(project as any)?.is_liked ? 'Убрать лайк' : 'Поставить лайк'}
+                      >
+                        ❤️ {project.like_count}
+                      </button>
                     </div>
                   </div>
 
                   {/* Действия */}
                   <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => onEditProject(project)}
-                      className="flex-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
-                    >
-                      {t.gallery.editProject}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(t.gallery.confirmDelete)) {
-                          onDeleteProject(project.id);
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
-                    >
-                      {t.gallery.deleteProject}
-                    </button>
+                    {project.user_id === currentUser.id ? (
+                      <>
+                        <button
+                          onClick={() => onEditProject(project)}
+                          className="flex-1 px-3 py-2 bg-white text-black text-sm rounded-lg hover:bg-gray-100 transition-colors"
+                        >
+                          {t.gallery.editProject}
+                        </button>
+                        <button
+                          onClick={() => {
+                        if (window.confirm(t.gallery.deleteConfirm)) {
+                              onDeleteProject(project.id);
+                            }
+                          }}
+                          className="px-3 py-2 bg-white/5 text-white text-sm rounded-lg hover:bg-white/10 transition-colors border border-white/10"
+                        >
+                          {t.gallery.deleteProject}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          // Оптимистично увеличим просмотры в UI
+                          setProjects(prev => prev.map(p => p.id === project.id ? { ...p, view_count: (p.view_count || 0) + 1 } : p));
+                          onEditProject(project);
+                        }}
+                        className="flex-1 px-3 py-2 bg-white text-black text-sm rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        {t.gallery.viewProject}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -312,8 +372,9 @@ function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'gallery' | 'editor'>('gallery');
+  const [currentView, setCurrentView] = useState<'gallery' | 'editor' | 'author'>('gallery');
   const [currentProject, setCurrentProject] = useState<ProjectWithData | null>(null);
+  const [authorUsername, setAuthorUsername] = useState<string | null>(null);
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
 
   // Подписка на изменения состояния авторизации
@@ -398,6 +459,15 @@ function AppContent() {
 
   const handleEditProject = async (project: ProjectWithData) => {
     console.log('📝 Открываем проект для редактирования:', project.id);
+    // Увеличиваем счетчик просмотров и синхронизируем UI с БД
+    try {
+      const newCount = await projectsService.incrementViewCount(project.id);
+      if (typeof newCount === 'number') {
+        setProjects(prev => prev.map(p => p.id === project.id ? { ...p, view_count: newCount } : p));
+      }
+    } catch (e) {
+      console.warn('Не удалось инкрементировать просмотры:', e);
+    }
     
     // Загружаем полные данные проекта
     const fullProject = await projectsService.getProject(project.id);
@@ -440,7 +510,7 @@ function AppContent() {
         console.log('📸 Загружено изображений из _images (старый формат):', Object.keys(images).length);
       }
       
-      // Также проверяем imageUrl/imageData в узлах
+      // Также проверяем imageUrl/imageData в узлах и нормализуем поле imageId
       Object.keys(nodes).forEach(nodeId => {
         const node = nodes[nodeId];
         if (node?.data?.backgroundImage) {
@@ -462,6 +532,10 @@ function AppContent() {
               originalName: 'image.png'
             };
             console.log(`📸 Base64 изображение ${imageId} из узла ${nodeId} (старый формат)`);
+          }
+          // Нормализация: если нет imageId, подставляем backgroundImage
+          if (!node.data.imageId) {
+            node.data.imageId = imageId;
           }
         }
       });
@@ -514,6 +588,11 @@ function AppContent() {
   const handleSaveProject = async (updatedData: any) => {
     if (!currentProject) {
       console.error('❌ Нет текущего проекта для сохранения');
+      return;
+    }
+    // Защита: сохраняем только если текущий пользователь — автор
+    if (!session?.user || currentProject.user_id !== session.user.id) {
+      console.warn('🚫 Попытка сохранить проект не-автором — изменения проигнорированы');
       return;
     }
 
@@ -572,7 +651,10 @@ function AppContent() {
         {
           title: updatedData.title || currentProject.title,
           description: updatedData.description || currentProject.description,
-          thumbnail_url: updatedData.thumbnail || currentProject.thumbnail_url
+          thumbnail_url: updatedData.thumbnail || currentProject.thumbnail_url,
+          // publishState → draft/public
+          is_public: typeof updatedData.isPublic === 'boolean' ? updatedData.isPublic : currentProject.is_public,
+          is_published: typeof updatedData.isPublished === 'boolean' ? updatedData.isPublished : currentProject.is_published
         },
         {
           nodes: updatedData.nodes || {},
@@ -649,8 +731,15 @@ function AppContent() {
         onEditProject={handleEditProject}
         onDeleteProject={handleDeleteProject}
         onLogout={handleLogout}
+        onOpenAuthor={(username) => { setAuthorUsername(username); setCurrentView('author'); }}
         refreshKey={galleryRefreshKey}
       />
+    );
+  }
+
+  if (currentView === 'author' && authorUsername) {
+    return (
+      <AuthorPage username={authorUsername} onBack={() => setCurrentView('gallery')} />
     );
   }
 
@@ -665,13 +754,17 @@ function AppContent() {
         edges: currentProject.edges || [],
         images: currentProject.images || {},
         authorId: currentProject.user_id,
-        authorName: currentProject.author?.username || 'Unknown'
+        authorName: currentProject.author?.username || 'Unknown',
+        is_public: currentProject.is_public,
+        is_published: currentProject.is_published
       } : null}
       currentUser={{
         id: session.user.id,
         username: profile?.username || session.user.email || 'User'
       }}
       isReadOnly={currentProject?.user_id !== session.user.id}
+      suppressSave={currentProject?.user_id !== session.user.id}
+      initialMode={currentProject?.user_id !== session.user.id ? 'viewer' : 'constructor'}
       onSaveProject={handleSaveProject}
       onBackToGallery={handleBackToGallery}
     />
@@ -684,5 +777,90 @@ export default function AppSupabaseDB() {
     <LanguageProvider>
       <AppContent />
     </LanguageProvider>
+  );
+}
+
+// Страница автора (минимальная версия)
+function AuthorPage({ username, onBack }: { username: string; onBack: () => void }) {
+  const { t } = useLanguage();
+  const [loading, setLoading] = React.useState(true);
+  const [author, setAuthor] = React.useState<Profile | null>(null);
+  const [projects, setProjects] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        // Находим профиль автора
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('username', username)
+          .limit(1);
+        const profile = profiles && profiles[0];
+        setAuthor(profile || null);
+
+        if (profile) {
+          // Загружаем публичные опубликованные проекты автора
+          const { projects: authorProjects } = await projectsService.getProjects({
+            userId: profile.id,
+            isPublic: true,
+            isPublished: true,
+            sortBy: 'created_at'
+          });
+          setProjects(authorProjects);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [username]);
+
+  return (
+    <div className="min-h-screen bg-[#0b0b0c]">
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        <button onClick={onBack} className="text-white/80 hover:text-white flex items-center gap-2">
+          <ArrowLeft size={16} /> {t.back}
+        </button>
+
+        <div className="mt-6 flex items-center gap-4">
+          {author?.avatar_url && <img src={author.avatar_url} className="w-16 h-16 rounded-full ring-2 ring-white/10" />}
+          <div>
+            <h1 className="text-2xl font-bold text-white">{author?.username || username}</h1>
+            <div className="text-white/60 text-sm">
+              Комиксов: {author?.total_projects ?? 0} • Просмотров: {author?.total_views ?? 0} • Лайков: {author?.total_likes ?? 0}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {loading ? (
+            <div className="text-white/60">Загрузка...</div>
+          ) : (
+            projects.map((p) => (
+              <div key={p.id} className="rounded-2xl overflow-hidden bg-white/5 border border-white/10">
+                <div className="aspect-[4/3] bg-black">
+                  {p.thumbnail_url ? (
+                    <img src={p.thumbnail_url} alt={p.title} className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-white/20">📚</div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="text-white font-semibold truncate">{p.title}</h3>
+                  <div className="mt-2 flex gap-4 text-white/70 text-sm">
+                    <span>👁 {p.view_count}</span>
+                    <span>❤️ {p.like_count}</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

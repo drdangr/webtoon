@@ -113,6 +113,31 @@ CREATE TABLE public.views (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
+-- Триггерная функция для инкремента счётчика просмотров
+CREATE OR REPLACE FUNCTION public.increment_project_view_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Инкрементируем счётчик в проекте
+  UPDATE public.projects
+  SET view_count = view_count + 1
+  WHERE id = NEW.project_id;
+
+  -- Инкрементируем суммарные просмотры у автора проекта
+  UPDATE public.profiles
+  SET total_views = total_views + 1
+  WHERE id = (SELECT user_id FROM public.projects WHERE id = NEW.project_id);
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Триггер «после вставки просмотра»
+DROP TRIGGER IF EXISTS trg_increment_project_view_count ON public.views;
+CREATE TRIGGER trg_increment_project_view_count
+AFTER INSERT ON public.views
+FOR EACH ROW
+EXECUTE FUNCTION public.increment_project_view_count();
+
 -- Таблица комментариев (опционально на будущее)
 CREATE TABLE public.comments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

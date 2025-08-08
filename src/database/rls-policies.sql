@@ -110,6 +110,55 @@ CREATE POLICY "Everyone can view follows"
   USING (true);
 
 -- ============================================
+-- SECURITY DEFINER для служебных функций (обход RLS внутри функций/триггеров)
+-- ============================================
+
+-- increment_view_count: обновляет projects.view_count и profiles.total_views
+-- Требуется SECURITY DEFINER, иначе UPDATE projects заблокирует RLS для не-автора
+DO $$
+BEGIN
+  PERFORM 1
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'increment_view_count';
+  IF FOUND THEN
+    EXECUTE 'ALTER FUNCTION public.increment_view_count(uuid, uuid, text) SECURITY DEFINER SET search_path = public';
+    -- Закрываем прямой вызов всем и разрешаем только ролям API
+    EXECUTE 'REVOKE ALL ON FUNCTION public.increment_view_count(uuid, uuid, text) FROM PUBLIC';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.increment_view_count(uuid, uuid, text) TO anon, authenticated';
+  END IF;
+END $$;
+
+-- update_like_count (триггерная функция): обновляет projects.like_count и profiles.total_likes
+DO $$
+BEGIN
+  PERFORM 1
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'update_like_count'
+    AND p.pronargs = 0; -- триггерная функция без аргументов
+  IF FOUND THEN
+    EXECUTE 'ALTER FUNCTION public.update_like_count() SECURITY DEFINER SET search_path = public';
+  END IF;
+END $$;
+
+-- Триггерная функция просмотров тоже выполняется с правами владельца
+DO $$
+BEGIN
+  PERFORM 1
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'increment_project_view_count'
+    AND p.pronargs = 0;
+  IF FOUND THEN
+    EXECUTE 'ALTER FUNCTION public.increment_project_view_count() SECURITY DEFINER SET search_path = public';
+  END IF;
+END $$;
+
+-- ============================================
 -- ПОЛИТИКИ ДЛЯ ОСТАЛЬНЫХ ТАБЛИЦ
 -- ============================================
 
@@ -146,6 +195,23 @@ CREATE POLICY "Users can manage versions of own projects"
     EXISTS (
       SELECT 1 FROM public.projects 
       WHERE projects.id = project_versions.project_id 
+      AND projects.user_id = auth.uid()
+    )
+  );
+
+-- Позволяем читать версии публичных опубликованных проектов всем
+CREATE POLICY "Public can view versions of published public projects" 
+  ON public.project_versions FOR SELECT 
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE projects.id = project_versions.project_id
+      AND projects.is_public = true
+      AND projects.is_published = true
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE projects.id = project_versions.project_id
       AND projects.user_id = auth.uid()
     )
   );
