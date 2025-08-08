@@ -160,7 +160,8 @@ const NodeComponent = ({
   onNodeClick,
   onUpdateCaption,
   onDeleteNode,
-  onUpdatePosition
+  onUpdatePosition,
+  scale
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragInfo = useRef(null);
@@ -216,8 +217,9 @@ const NodeComponent = ({
         return;
       }
       
-      const deltaX = e.pageX - dragInfo.current.startX;
-      const deltaY = e.pageY - dragInfo.current.startY;
+      const k = scale || 1;
+      const deltaX = (e.pageX - dragInfo.current.startX) / k;
+      const deltaY = (e.pageY - dragInfo.current.startY) / k;
       
       const newX = Math.max(10, Math.min(1900, dragInfo.current.nodeStartX + deltaX));
       const newY = Math.max(10, Math.min(1400, dragInfo.current.nodeStartY + deltaY));
@@ -441,13 +443,15 @@ interface WebtoonsGraphEditorProps {
     username: string;
   };
   isReadOnly: boolean;
+  suppressSave?: boolean;
+  initialMode?: 'viewer' | 'constructor';
   onSaveProject: (projectData: { nodes: any; edges: any; images: any; title?: string; description?: string; thumbnail?: string }) => void;
   onBackToGallery: () => void;
 }
 
-const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
+const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppressSave = false, initialMode = 'constructor', onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
   const { t } = useLanguage();
-  const [mode, setMode] = useState('constructor');
+  const [mode, setMode] = useState(initialMode);
   const [images, setImages] = useState(() => {
     // Сначала пробуем получить изображения из отдельного объекта images
     if (initialProject?.images && Object.keys(initialProject.images).length > 0) {
@@ -466,6 +470,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
   const [projectThumbnail, setProjectThumbnail] = useState(initialProject?.thumbnail || '');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
+  // Режим публикации: draft (видит только автор) или public (видят все)
+  const [publishState, setPublishState] = useState<'draft' | 'public'>(
+    initialProject && (initialProject as any).is_public && (initialProject as any).is_published ? 'public' : 'draft'
+  );
   
   // Инициализируем nodes и edges из проекта или дефолтными значениями
   const [nodes, setNodes] = useState(() => {
@@ -494,8 +502,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
   const [viewerPath, setViewerPath] = useState([]);
   const [draggedHotspot, setDraggedHotspot] = useState(null); // Состояние для перетаскивания хотспотов
   const [scrollPosition, setScrollPosition] = useState({ x: 0, y: 0 });
-  const graphScrollRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const [zoom, setZoom] = useState(1);
+  const [isWheelOverCanvas, setIsWheelOverCanvas] = useState(false);
+  const graphScrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Глобальный стиль для предотвращения выделения текста во время перетаскивания
   React.useEffect(() => {
@@ -521,9 +531,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
     };
   }, []);
 
-  // Автосохранение проекта при изменениях (только если не режим просмотра)
+  // Меняем режим, если изменился initialMode
   React.useEffect(() => {
-    if (isReadOnly) return; // Не сохраняем в режиме только просмотра
+    setMode(initialMode);
+  }, [initialMode]);
+
+  // Автосохранение проекта при изменениях (можно подавить)
+  React.useEffect(() => {
+    if (suppressSave || isReadOnly) return; // Не сохраняем, если сохранение отключено или read-only
     
     // Не сохраняем при первой загрузке
     if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) {
@@ -537,12 +552,15 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
         images,
         title: projectTitle,
         description: projectDescription,
-        thumbnail: projectThumbnail
+        thumbnail: projectThumbnail,
+        // Преобразуем publishState в пару флагов
+        isPublic: publishState === 'public',
+        isPublished: publishState === 'public'
       });
     }, 1000); // Сохраняем через 1 секунду после последнего изменения
     
     return () => clearTimeout(timeoutId);
-  }, [nodes, edges, images, projectTitle, projectDescription, projectThumbnail, onSaveProject, isReadOnly]);
+  }, [nodes, edges, images, projectTitle, projectDescription, projectThumbnail, publishState, onSaveProject, suppressSave, isReadOnly]);
 
   // Обработчики для редактирования полей проекта
   const handleTitleClick = () => {
@@ -583,35 +601,34 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
     event.target.value = '';
   };
 
-  // Восстановление позиции скролла при загрузке проекта
+  // Восстановление позиции скролла при загрузке проекта (или центрирование на START при первом открытии)
   React.useEffect(() => {
-    if (graphScrollRef.current && initialProject) {
-      const savedScrollKey = `scroll-${initialProject.id}`;
-      const savedScroll = localStorage.getItem(savedScrollKey);
-      if (savedScroll) {
-        try {
-          const { x, y } = JSON.parse(savedScroll);
-          graphScrollRef.current.scrollLeft = x;
-          graphScrollRef.current.scrollTop = y;
-          setScrollPosition({ x, y });
-        } catch (error) {
-          console.error('Ошибка восстановления позиции скролла:', error);
-        }
+    if (!graphScrollRef.current || !initialProject) return;
+    const savedScrollKey = `scroll-${initialProject.id}`;
+    const savedScroll = localStorage.getItem(savedScrollKey);
+    if (savedScroll) {
+      try {
+        const { x, y } = JSON.parse(savedScroll);
+        graphScrollRef.current.scrollLeft = x;
+        graphScrollRef.current.scrollTop = y;
+        setScrollPosition({ x, y });
+        return;
+      } catch (error) {
+        console.error('Ошибка восстановления позиции скролла:', error);
       }
     }
+    // Если сохранённой позиции нет — центрируемся на START
+    setTimeout(() => centerOnNode('start'), 0);
   }, [initialProject]);
 
   // Сохранение позиции скролла
   const handleScroll = React.useCallback(() => {
-    if (graphScrollRef.current && initialProject) {
-      const { scrollLeft, scrollTop } = graphScrollRef.current;
-      const newPosition = { x: scrollLeft, y: scrollTop };
-      setScrollPosition(newPosition);
-      
-      // Сохраняем в localStorage с привязкой к ID проекта
-      const savedScrollKey = `scroll-${initialProject.id}`;
-      localStorage.setItem(savedScrollKey, JSON.stringify(newPosition));
-    }
+    if (!graphScrollRef.current || !initialProject) return;
+    const { scrollLeft, scrollTop } = graphScrollRef.current;
+    const newPosition = { x: scrollLeft, y: scrollTop };
+    setScrollPosition(newPosition);
+    const savedScrollKey = `scroll-${initialProject.id}`;
+    localStorage.setItem(savedScrollKey, JSON.stringify(newPosition));
   }, [initialProject]);
 
   // Добавляем обработчик скролла
@@ -624,6 +641,35 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
       };
     }
   }, [handleScroll]);
+
+  // Глобальный перехват wheel: зумим при Ctrl + колесо, только когда курсор над канвой
+  React.useEffect(() => {
+    const container = graphScrollRef.current;
+    if (!container) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!isWheelOverCanvas || !e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = container.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      const currentZoom = zoom || 1;
+      const worldX = (container.scrollLeft + offsetX) / currentZoom;
+      const worldY = (container.scrollTop + offsetY) / currentZoom;
+      const delta = -e.deltaY;
+      const factor = delta > 0 ? 1.1 : 0.9;
+      const nextZoom = Math.min(2, Math.max(0.5, currentZoom * factor));
+      setZoom(nextZoom);
+      container.scrollLeft = Math.max(0, worldX * nextZoom - offsetX);
+      container.scrollTop = Math.max(0, worldY * nextZoom - offsetY);
+    };
+
+    // Вешаем на window, чтобы перехватывать в любом случае
+    window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    return () => window.removeEventListener('wheel', handleWheel, { capture: true } as any);
+  }, [zoom, isWheelOverCanvas]);
 
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files);
@@ -1018,7 +1064,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
           type: 'image',
           nodeId: currentNodeId,
           imageId: currentNode.data.imageId,
-          image: images[currentNode.data.imageId],
+          image: images[currentNode.data.imageId] || images[currentNode.data.backgroundImage],
           caption: currentNode.data.caption,
           hotspots: null  // Будет заполнено если следующая нода - choice
         };
@@ -1037,7 +1083,9 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
             
             const hotspots = outgoingEdges.map((edge, index) => {
               const targetNode = nodes[edge.to];
-              const targetImage = targetNode && targetNode.type === 'image' ? images[targetNode.data.imageId] : null;
+              const targetImage = targetNode && targetNode.type === 'image'
+                ? (images[targetNode.data.imageId] || images[targetNode.data.backgroundImage])
+                : null;
               const label = targetNode?.data.caption || targetImage?.name || nextNode.data.options[index] || `Вариант ${index + 1}`;
               
               // Позиции хотспотов (используем сохраненные или по умолчанию)
@@ -1118,6 +1166,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
     setMode('viewer');
     setViewerPath(buildViewerPath());
   };
+
+  // Автоматически строим путь просмотра при входе в режим viewer
+  React.useEffect(() => {
+    if (mode === 'viewer') {
+      setViewerPath(buildViewerPath());
+    }
+    // Перестраиваем при изменениях графа
+  }, [mode, nodes, edges, images]);
 
   if (mode === 'viewer') {
     return (
@@ -1262,8 +1318,27 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                </div>
              </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
             <LanguageSwitcher />
+            {/* Публичность/публикация (доступно если не подавлено сохранение) */}
+            {!suppressSave && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPublishState('draft')}
+                  className={`px-3 py-1.5 rounded border text-sm ${publishState==='draft' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  title={t.editor.meta.draft}
+                >
+                  {t.editor.meta.draft}
+                </button>
+                <button
+                  onClick={() => setPublishState('public')}
+                  className={`px-3 py-1.5 rounded border text-sm ${publishState==='public' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  title={t.editor.meta.public}
+                >
+                  {t.editor.meta.public}
+                </button>
+              </div>
+            )}
             <button
               onClick={switchToViewer}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1422,11 +1497,13 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
           <div className="bg-white rounded-lg shadow-sm p-4 h-96 lg:h-[400px] relative border">
             <h2 className="text-xl font-semibold mb-4">{t.editor.graph.title}</h2>
             
-            <div 
-              ref={graphScrollRef}
-              className="w-full h-full border border-gray-200 rounded overflow-auto bg-gray-50 relative"
-            >
-              <div className="relative" style={{ width: '2000px', height: '1500px' }}>
+              <div 
+                ref={graphScrollRef}
+                onMouseEnter={() => setIsWheelOverCanvas(true)}
+                onMouseLeave={() => setIsWheelOverCanvas(false)}
+                className="w-full h-full border border-gray-200 rounded overflow-auto bg-gray-50 relative"
+              >
+              <div className="relative" style={{ width: '2000px', height: '1500px', transformOrigin: '0 0', transform: `scale(${zoom})` }}>
                 
                 {/* Сетка фона */}
                 <div 
@@ -1450,8 +1527,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                 <svg 
                   className="absolute inset-0 w-full h-full pointer-events-none"
                   style={{ zIndex: 1 }}
-                  width="2000"
-                  height="1500"
+                   width={2000}
+                   height={1500}
                 >
                   {edges.map(edge => {
                     const fromNode = nodes[edge.from];
@@ -1548,6 +1625,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                         onUpdateCaption={updateImageCaption}
                         onDeleteNode={deleteNode}
                         onUpdatePosition={updateNodePosition}
+                        scale={zoom}
                       />
                     );
                   })}
@@ -1598,7 +1676,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, onSavePr
                 {nodes[selectedNodeId].type === 'image' && (
                   <div className="space-y-3">
                     <div className="w-full">
-                      {images[nodes[selectedNodeId].data.imageId] ? (
+                       {images[nodes[selectedNodeId].data.imageId] ? (
                         <img 
                           src={images[nodes[selectedNodeId].data.imageId].src}
                           alt={images[nodes[selectedNodeId].data.imageId].name}

@@ -45,6 +45,8 @@ export function SupabaseAuth({ onSuccess }: SupabaseAuthProps) {
         
         if (data) {
           setError(t.auth.registrationSuccess || 'Регистрация успешна! Проверьте вашу почту для подтверждения.');
+          // Явное уведомление о письме подтверждения
+          alert(t.auth.registrationSuccess || 'Регистрация успешна! Проверьте вашу почту для подтверждения.');
           // После подтверждения email пользователь сможет войти
         }
       }

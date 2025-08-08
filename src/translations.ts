@@ -81,6 +81,11 @@ export interface Translations {
     clickToEdit: string;
     enterTitle: string;
     enterDescription: string;
+    meta: {
+      public: string;
+      published: string;
+      draft: string;
+    };
     
     // Панель инструментов
     tools: {
@@ -259,6 +264,11 @@ export const translations: Record<Language, Translations> = {
       clickToEdit: 'Кликните чтобы редактировать',
       enterTitle: 'Введите название комикса',
       enterDescription: 'Введите описание комикса',
+      meta: {
+        public: 'Публичный',
+        published: 'Опубликован',
+        draft: 'Черновик',
+      },
       
       tools: {
         imagePool: 'Пул изображений',
@@ -428,6 +438,11 @@ export const translations: Record<Language, Translations> = {
       clickToEdit: 'Клікніть щоб редагувати',
       enterTitle: 'Введіть назву коміксу',
       enterDescription: 'Введіть опис коміксу',
+      meta: {
+        public: 'Публічний',
+        published: 'Опубліковано',
+        draft: 'Чернетка',
+      },
       
       tools: {
         imagePool: 'Пул зображень',
@@ -597,6 +612,11 @@ export const translations: Record<Language, Translations> = {
       clickToEdit: 'Click to edit',
       enterTitle: 'Enter comic title',
       enterDescription: 'Enter comic description',
+      meta: {
+        public: 'Public',
+        published: 'Published',
+        draft: 'Draft',
+      },
       
       tools: {
         imagePool: 'Image Pool',
