@@ -860,6 +860,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isSpaceDown, setIsSpaceDown] = useState(false);
   // Детектируем мобильный (coarse) указатель для адаптивного UI
   const [isCoarse, setIsCoarse] = useState(false);
+  const [isMobileGalleryOpen, setIsMobileGalleryOpen] = useState(false);
+  const [isMobileHotspotEditorOpen, setIsMobileHotspotEditorOpen] = useState(false);
   React.useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).matchMedia) return;
     const m = window.matchMedia('(pointer: coarse)');
@@ -868,6 +870,21 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     m.addEventListener?.('change', update);
     return () => m.removeEventListener?.('change', update);
   }, []);
+
+  // Открывать мобильный редактор хот-спотов при выборе choice-ноды
+  React.useEffect(() => {
+    if (!isCoarse) return;
+    if (!selectedNodeId) {
+      setIsMobileHotspotEditorOpen(false);
+      return;
+    }
+    const node = nodes[selectedNodeId];
+    if (node?.type === 'choice') {
+      setIsMobileHotspotEditorOpen(true);
+    } else {
+      setIsMobileHotspotEditorOpen(false);
+    }
+  }, [isCoarse, selectedNodeId, nodes]);
 
   // =====================
   // Undo / Redo (локальная история)
@@ -2511,6 +2528,30 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 }
               </span>
             </div>
+
+            {/* Мобильная шторка галереи изображений */}
+            {isCoarse && (
+              <div className={`fixed inset-x-0 bottom-0 z-40 transition-transform duration-300 ${isMobileGalleryOpen ? 'translate-y-0' : 'translate-y-full'}`}>
+                <div className="bg-white rounded-t-2xl shadow-xl border-t p-4 max-h-[70vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold">{t.editor.tools.imagePool}</h3>
+                    <button onClick={() => setIsMobileGalleryOpen(false)} className="px-3 py-1 text-sm rounded bg-gray-100">Закрыть</button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {Object.values(images).map((image: any) => (
+                      <button key={image.id} className="border rounded overflow-hidden" onClick={() => { createImageNode(image.id); setIsMobileGalleryOpen(false); }}>
+                        <img src={image.src} alt={image.name} className="w-full h-16 object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {isCoarse && (
+              <button onClick={() => setIsMobileGalleryOpen(true)} className="fixed right-3 bottom-3 z-30 px-3 py-2 rounded-full shadow bg-purple-600 text-white">
+                {t.editor.tools.imagePool}
+              </button>
+            )}
           </div>
           
           {/* Панель предпросмотра выделенной ноды */}
@@ -2674,6 +2715,66 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           </div>
         </div>
       </div>
+
+      {/* Мобильный полноэкранный редактор хот-спотов (MVP) */}
+      {isCoarse && isMobileHotspotEditorOpen && selectedNodeId && nodes[selectedNodeId]?.type === 'choice' && (
+        <div className="fixed inset-0 z-50 bg-black/70">
+          <div className="absolute inset-0 bg-white p-3 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-semibold">Редактор хот‑спотов</div>
+              <button onClick={() => setIsMobileHotspotEditorOpen(false)} className="px-3 py-1 rounded bg-gray-100">Готово</button>
+            </div>
+            <div className="relative flex-1 overflow-auto">
+              {(() => {
+                const previousImageNode = getPreviousImageNode(selectedNodeId);
+                if (previousImageNode && images[previousImageNode.data.imageId]) {
+                  const backgroundImage = images[previousImageNode.data.imageId];
+                  return (
+                    <div className="relative">
+                      <img src={backgroundImage.src} alt={backgroundImage.name} className="w-full h-auto object-contain" />
+                      <div className="absolute inset-0">
+                        {edges.filter(edge => edge.from === selectedNodeId).map((edge, index) => {
+                          const targetNode = nodes[edge.to];
+                          const label = targetNode?.data?.caption || nodes[selectedNodeId].data.options[index] || `Вариант ${index + 1}`;
+                          const defaultX = 10 + (index * 25);
+                          const defaultY = 10 + (index * 15);
+                          const position = getHotspotPosition(selectedNodeId, edge.id, defaultX, defaultY);
+                          return (
+                            <DraggableHotspot
+                              key={edge.id}
+                              hotspot={{
+                                id: edge.id,
+                                edgeId: edge.id,
+                                x: position.x,
+                                y: position.y,
+                                width: position.width,
+                                height: position.height,
+                                shape: position.shape,
+                                label: label,
+                                targetNodeId: edge.to,
+                                optionIndex: index,
+                                isSelected: false,
+                                onClick: undefined,
+                                title: `Хотспот: ${label}`
+                              }}
+                              choiceNodeId={selectedNodeId}
+                              onHotspotUpdate={updateHotspot}
+                              isInViewMode={false}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="w-full h-full flex items-center justify-center text-gray-500">Нет фонового изображения</div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
