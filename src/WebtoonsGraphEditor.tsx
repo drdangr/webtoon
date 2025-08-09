@@ -132,6 +132,11 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     // Добавляем обработчики
     document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp, { passive: false });
+    // PointerEvents (для десктопа)
+    const handlePointerMove = (e) => handleMouseMove(e as any);
+    const handlePointerUp = () => handleMouseUp();
+    document.addEventListener('pointermove', handlePointerMove, { passive: false });
+    document.addEventListener('pointerup', handlePointerUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
     // Touch версии
     const handleTouchMove = (te) => {
@@ -169,6 +174,8 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('pointermove', handlePointerMove as any);
+      document.removeEventListener('pointerup', handlePointerUp as any);
     };
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -267,6 +274,11 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    // PointerEvents (для десктопа)
+    const handlePointerMove = (e) => handleMouseMove(e as any);
+    const handlePointerUp = () => handleMouseUp();
+    document.addEventListener('pointermove', handlePointerMove, { passive: false });
+    document.addEventListener('pointerup', handlePointerUp, { passive: false });
     // Touch версии
     const handleTouchMove = (te) => {
       if (!resizeInfo.current) return;
@@ -304,6 +316,10 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('pointermove', handlePointerMove as any);
+      document.removeEventListener('pointerup', handlePointerUp as any);
+      document.removeEventListener('pointermove', handlePointerMove as any);
+      document.removeEventListener('pointerup', handlePointerUp as any);
     };
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -334,7 +350,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     const isTouch = e.pointerType === 'touch';
     if (!isPrimaryMouse && !isTouch) return;
     try {
-      hotspotRef.current?.setPointerCapture?.(e.pointerId);
+      (e.target as any)?.setPointerCapture?.(e.pointerId);
     } catch {}
     // Превращаем в поведение как mousedown/touchstart
     if (isTouch) {
@@ -399,7 +415,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
             onPointerDown={(e) => {
               if (isInViewMode) return;
               if (isDragging || isResizing) return;
-              try { (e.target as any)?.setPointerCapture?.(e.pointerId); } catch {}
+              try { (e.currentTarget as any)?.setPointerCapture?.(e.pointerId); } catch {}
               const container = hotspotRef.current?.parentElement;
               if (!container) return;
               resizeInfo.current = {
