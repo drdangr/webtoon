@@ -303,6 +303,29 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     const next = (hotspot.shape || 'rect') === 'rect' ? 'ellipse' : 'rect';
     onHotspotUpdate(choiceNodeId, hotspot.edgeId, { shape: next });
   };
+
+  const handlePointerDown = (e) => {
+    // Упрощённый унификатор: для primary мыши и touch перенаправляем в mouse-логику
+    if (isInViewMode) return;
+    // Только primary (левый) для мыши или любое касание
+    const isPrimaryMouse = e.pointerType === 'mouse' && e.button === 0;
+    const isTouch = e.pointerType === 'touch';
+    if (!isPrimaryMouse && !isTouch) return;
+    try {
+      hotspotRef.current?.setPointerCapture?.(e.pointerId);
+    } catch {}
+    // Превращаем в поведение как mousedown/touchstart
+    if (isTouch) {
+      // Синтетический вызов touch-start логики
+      const fakeTouchEvent = {
+        touches: [{ pageX: e.pageX, pageY: e.pageY }],
+        preventDefault: () => e.preventDefault()
+      } as any;
+      handleTouchStart(fakeTouchEvent);
+    } else {
+      handleMouseDown(e);
+    }
+  };
   
   return (
     <div
@@ -325,6 +348,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
         borderRadius: hotspot.shape === 'ellipse' ? '9999px' : '0.375rem',
         touchAction: 'none'
       }}
+      onPointerDown={handlePointerDown}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
       onClick={handleClick}
@@ -349,6 +373,28 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
           {/* Хэндл ресайза */}
           <div
             onMouseDown={handleResizeMouseDown}
+            onTouchStart={(e) => {
+              if (isInViewMode) return;
+              if (isDragging || isResizing) return;
+              const touch = e.touches?.[0];
+              if (!touch) return;
+              const container = hotspotRef.current?.parentElement;
+              if (!container) return;
+              resizeInfo.current = {
+                startX: touch.pageX,
+                startY: touch.pageY,
+                initialWidth: hotspot.width ?? 20,
+                initialHeight: hotspot.height ?? 8,
+                initialX: hotspot.x,
+                initialY: hotspot.y,
+                containerRect: container.getBoundingClientRect()
+              };
+              setIsResizing(true);
+              document.body.style.cursor = 'nwse-resize';
+              document.body.style.userSelect = 'none';
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             className="absolute -bottom-1 -right-1 w-3 h-3 bg-white border border-gray-500 rounded-sm cursor-nwse-resize"
             title="Изменить размер"
           />
