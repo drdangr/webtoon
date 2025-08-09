@@ -111,14 +111,66 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    // Touch версии
+    const handleTouchMove = (te) => {
+      if (!dragInfo.current) return;
+      if (te.touches.length !== 1) return;
+      const touch = te.touches[0];
+      const now = Date.now();
+      if (now - lastUpdateTime.current < 8) return;
+      lastUpdateTime.current = now;
+      const { startX, startY, initialHotspotX, initialHotspotY, containerRect } = dragInfo.current;
+      const deltaX = ((touch.pageX - startX) / containerRect.width) * 100;
+      const deltaY = ((touch.pageY - startY) / containerRect.height) * 100;
+      const maxX = 100 - (hotspot.width ?? 20);
+      const maxY = 100 - (hotspot.height ?? 8);
+      const newX = clamp(initialHotspotX + deltaX, 0, maxX);
+      const newY = clamp(initialHotspotY + deltaY, 0, maxY);
+      setTempRect({ x: newX, y: newY, width: hotspot.width, height: hotspot.height });
+      te.preventDefault();
+    };
+    const handleTouchEnd = () => {
+      if (tempRect) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRect.x, y: tempRect.y });
+        setTempRect(null);
+      }
+      setIsDragging(false);
+      dragInfo.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd, { passive: false });
     
     // Cleanup функция
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
     };
   }, [isDragging, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.width, hotspot.height]);
+
+  const handleTouchStart = (e) => {
+    if (isInViewMode) return;
+    if (isDragging || isResizing) return;
+    if (e.touches.length !== 1) return; // одиночный палец — drag, 2 пальца — pinch/pan канвы
+    const touch = e.touches[0];
+    const container = hotspotRef.current?.parentElement;
+    if (!container) return;
+    dragInfo.current = {
+      startX: touch.pageX,
+      startY: touch.pageY,
+      initialHotspotX: hotspot.x,
+      initialHotspotY: hotspot.y,
+      containerRect: container.getBoundingClientRect()
+    };
+    setIsDragging(true);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  };
 
   const handleResizeMouseDown = (e) => {
     if (isInViewMode) return;
@@ -194,11 +246,45 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    // Touch версии
+    const handleTouchMove = (te) => {
+      if (!resizeInfo.current) return;
+      if (te.touches.length !== 1) return;
+      const touch = te.touches[0];
+      const now = Date.now();
+      if (now - lastUpdateTime.current < 8) return;
+      lastUpdateTime.current = now;
+      const { startX, startY, initialWidth, initialHeight, initialX, initialY, containerRect } = resizeInfo.current;
+      const deltaX = ((touch.pageX - startX) / containerRect.width) * 100;
+      const deltaY = ((touch.pageY - startY) / containerRect.height) * 100;
+      const minW = 6;
+      const minH = 4;
+      const maxW = 100 - initialX;
+      const maxH = 100 - initialY;
+      const nextW = clamp(initialWidth + deltaX, minW, maxW);
+      const nextH = clamp(initialHeight + deltaY, minH, maxH);
+      setTempRect({ x: hotspot.x, y: hotspot.y, width: nextW, height: nextH });
+      te.preventDefault();
+    };
+    const handleTouchEnd = () => {
+      if (tempRect) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRect.width, height: tempRect.height });
+        setTempRect(null);
+      }
+      setIsResizing(false);
+      resizeInfo.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
     };
   }, [isResizing, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.x, hotspot.y]);
   
@@ -236,9 +322,11 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
         minWidth: '60px',
         minHeight: '24px',
         zIndex: isDragging || isResizing ? 1000 : 1,
-        borderRadius: hotspot.shape === 'ellipse' ? '9999px' : '0.375rem'
+        borderRadius: hotspot.shape === 'ellipse' ? '9999px' : '0.375rem',
+        touchAction: 'none'
       }}
       onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
       onClick={handleClick}
       title={hotspot.title}
     >
