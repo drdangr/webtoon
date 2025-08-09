@@ -2146,20 +2146,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
 
        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-full">
         {/* Мобильный нижний тулбар */}
-        {isCoarse && (
-          <div className="fixed bottom-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur px-3 py-2 rounded-xl shadow border">
-            <button
-              onClick={() => setLinkMode(v => !v)}
-              className={`px-3 py-1.5 rounded border text-sm ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
-            >Связи</button>
-            <button onClick={uiUndo} className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 flex items-center justify-center" title="Отменить">
-              <Undo2 size={18} />
-            </button>
-            <button onClick={uiRedo} className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 flex items-center justify-center" title="Повторить">
-              <Redo2 size={18} />
-            </button>
-          </div>
-        )}
+        {/* Мобильный нижний тулбар убран по требованию, кнопки размещены в заголовке фрейма */}
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4">
             <h3 className="font-semibold text-gray-800 mb-3">{t.editor.tools.imagePool}</h3>
