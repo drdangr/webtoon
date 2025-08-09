@@ -12,21 +12,26 @@ interface Hotspot {
   y: number;        // позиция в % от высоты изображения  
   width: number;    // ширина в % от ширины изображения
   height: number;   // высота в % от высоты изображения
+  shape?: 'rect' | 'ellipse'; // форма хотспота
   edgeId: string;   // ID связи, к которой привязан хотспот
 }
 
 // Компонент перетаскиваемого хотспота (вынесен на уровень модуля)
-const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, isInViewMode = false }) => {
+const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, isInViewMode = false }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [tempPosition, setTempPosition] = useState(null); // Временная позиция во время drag
+  const [isResizing, setIsResizing] = useState(false);
+  const [tempRect, setTempRect] = useState(null); // Временная позиция/размер во время drag/resize
   const hotspotRef = useRef(null);
   const dragInfo = useRef(null);
+  const resizeInfo = useRef(null);
   const lastUpdateTime = useRef(0); // Возвращаем легкий throttling
   
+  const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+
   const handleMouseDown = (e) => {
     if (isInViewMode) return; // В режиме просмотра не перетаскиваем
     if (e.button !== 0) return; // Только левая кнопка мыши
-    if (isDragging) return; // Уже перетаскиваем
+    if (isDragging || isResizing) return; // Уже перетаскиваем/ресайзим
     
     e.preventDefault();
     e.stopPropagation();
@@ -72,18 +77,20 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
       const deltaX = ((e.pageX - startX) / containerRect.width) * 100;
       const deltaY = ((e.pageY - startY) / containerRect.height) * 100;
       
-      const newX = Math.max(0, Math.min(80, initialHotspotX + deltaX));
-      const newY = Math.max(0, Math.min(92, initialHotspotY + deltaY));
+      const maxX = 100 - (hotspot.width ?? 20);
+      const maxY = 100 - (hotspot.height ?? 8);
+      const newX = clamp(initialHotspotX + deltaX, 0, maxX);
+      const newY = clamp(initialHotspotY + deltaY, 0, maxY);
       
       // Во время drag обновляем только локальную позицию - НЕ ТРОГАЕМ глобальное состояние!
-      setTempPosition({ x: newX, y: newY });
+      setTempRect({ x: newX, y: newY, width: hotspot.width, height: hotspot.height });
     };
 
     const handleMouseUp = () => {
       // Если есть временная позиция, сохраняем её в глобальное состояние
-      if (tempPosition) {
-        onPositionUpdate(choiceNodeId, hotspot.edgeId, tempPosition.x, tempPosition.y);
-        setTempPosition(null);
+      if (tempRect) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRect.x, y: tempRect.y });
+        setTempRect(null);
       }
       
       setIsDragging(false);
@@ -111,7 +118,89 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('contextmenu', handleContextMenu);
     };
-  }, [isDragging, choiceNodeId, hotspot.edgeId, onPositionUpdate, tempPosition]);
+  }, [isDragging, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.width, hotspot.height]);
+
+  const handleResizeMouseDown = (e) => {
+    if (isInViewMode) return;
+    if (e.button !== 0) return;
+    if (isDragging || isResizing) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const container = hotspotRef.current?.parentElement;
+    if (!container) return;
+
+    resizeInfo.current = {
+      startX: e.pageX,
+      startY: e.pageY,
+      initialWidth: hotspot.width ?? 20,
+      initialHeight: hotspot.height ?? 8,
+      initialX: hotspot.x,
+      initialY: hotspot.y,
+      containerRect: container.getBoundingClientRect()
+    };
+    setIsResizing(true);
+    document.body.style.cursor = 'nwse-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      if (!resizeInfo.current) return;
+      const now = Date.now();
+      if (now - lastUpdateTime.current < 8) return;
+      lastUpdateTime.current = now;
+
+      if (e.buttons === 0) {
+        handleMouseUp();
+        return;
+      }
+
+      const { startX, startY, initialWidth, initialHeight, initialX, initialY, containerRect } = resizeInfo.current;
+      const deltaX = ((e.pageX - startX) / containerRect.width) * 100;
+      const deltaY = ((e.pageY - startY) / containerRect.height) * 100;
+
+      const minW = 6; // минимальная ширина в %
+      const minH = 4; // минимальная высота в %
+      const maxW = 100 - initialX;
+      const maxH = 100 - initialY;
+      const nextW = clamp(initialWidth + deltaX, minW, maxW);
+      const nextH = clamp(initialHeight + deltaY, minH, maxH);
+
+      setTempRect({ x: hotspot.x, y: hotspot.y, width: nextW, height: nextH });
+    };
+
+    const handleMouseUp = () => {
+      if (tempRect) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRect.width, height: tempRect.height });
+        setTempRect(null);
+      }
+      setIsResizing(false);
+      resizeInfo.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    const handleContextMenu = (e) => {
+      if (isResizing) {
+        e.preventDefault();
+        handleMouseUp();
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove, { passive: false });
+    document.addEventListener('mouseup', handleMouseUp, { passive: false });
+    document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [isResizing, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.x, hotspot.y]);
   
   const handleClick = (e) => {
     if (isInViewMode && hotspot.onClick) {
@@ -121,24 +210,33 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
     }
   };
   
+  const toggleShape = (e) => {
+    if (isInViewMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = (hotspot.shape || 'rect') === 'rect' ? 'ellipse' : 'rect';
+    onHotspotUpdate(choiceNodeId, hotspot.edgeId, { shape: next });
+  };
+  
   return (
     <div
       ref={hotspotRef}
       className={`absolute rounded flex items-center justify-center text-white text-xs font-medium transition-all duration-200 ${
         isInViewMode 
           ? 'bg-transparent hover:bg-black hover:bg-opacity-60 cursor-pointer' // В режиме просмотра прозрачные, с hover эффектом
-          : (isDragging 
+          : (isDragging
               ? 'bg-blue-500 bg-opacity-90 border-2 border-blue-300 cursor-grabbing' 
               : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-grab')
       }`}
       style={{
-        left: `${tempPosition ? tempPosition.x : hotspot.x}%`,
-        top: `${tempPosition ? tempPosition.y : hotspot.y}%`,
-        width: `${hotspot.width}%`,
-        height: `${hotspot.height}%`,
+        left: `${(tempRect ? tempRect.x : hotspot.x)}%`,
+        top: `${(tempRect ? tempRect.y : hotspot.y)}%`,
+        width: `${(tempRect ? tempRect.width : hotspot.width)}%`,
+        height: `${(tempRect ? tempRect.height : hotspot.height)}%`,
         minWidth: '60px',
         minHeight: '24px',
-        zIndex: isDragging ? 1000 : 1
+        zIndex: isDragging || isResizing ? 1000 : 1,
+        borderRadius: hotspot.shape === 'ellipse' ? '9999px' : '0.375rem'
       }}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
@@ -149,6 +247,25 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onPositionUpdate, 
         {hotspot.isSelected && '✓ '}
         {hotspot.label}
       </span>
+      {!isInViewMode && (
+        <>
+          {/* Переключатель формы */}
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={toggleShape}
+            className="absolute top-0.5 left-0.5 w-5 h-5 bg-black/40 hover:bg-black/60 text-white rounded flex items-center justify-center"
+            title={hotspot.shape === 'ellipse' ? 'Форма: овал (кликните для прямоугольника)' : 'Форма: прямоугольник (кликните для овала)'}
+          >
+            {hotspot.shape === 'ellipse' ? '◯' : '▭'}
+          </button>
+          {/* Хэндл ресайза */}
+          <div
+            onMouseDown={handleResizeMouseDown}
+            className="absolute -bottom-1 -right-1 w-3 h-3 bg-white border border-gray-500 rounded-sm cursor-nwse-resize"
+            title="Изменить размер"
+          />
+        </>
+      )}
     </div>
   );
 });
@@ -164,7 +281,8 @@ const NodeComponent = ({
   onUpdateCaption,
   onDeleteNode,
   onUpdatePosition,
-  scale
+  scale,
+  panActive
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragInfo = useRef(null);
@@ -173,6 +291,8 @@ const NodeComponent = ({
   const handleMouseDown = (e) => {
     // Только левая кнопка мыши
     if (e.button !== 0) return;
+    // Во время панорамирования не перехватываем события — пусть дойдут до канвы
+    if (panActive) return;
     
     // Проверяем, не идёт ли уже перетаскивание
     if (isDragging) return;
@@ -532,6 +652,12 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
+  // Режимы инструментов
+  const [linkMode, setLinkMode] = useState(false);
+  const [panMode, setPanMode] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const panInfoRef = useRef<any>(null);
+  const [isSpaceDown, setIsSpaceDown] = useState(false);
 
   // =====================
   // Undo / Redo (локальная история)
@@ -590,6 +716,12 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (mode !== 'constructor') return;
+      if (e.code === 'Space') {
+        // включаем временное панорамирование пробелом
+        setIsSpaceDown(true);
+        // избегаем прокрутки страницы пробелом
+        e.preventDefault();
+      }
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
       if (!isCtrlOrMeta) return;
       const code = e.code; // KeyZ/KeyY независимо от раскладки
@@ -613,8 +745,15 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         }
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') setIsSpaceDown(false);
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [applySnapshot, makeSnapshot, mode]);
 
   // Очищаем историю при размонтировании редактора (выход в галерею). Переключение viewer/constructor компонент не размонтирует — история сохранится
@@ -826,6 +965,121 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     return () => window.removeEventListener('wheel', handleWheel, { capture: true } as any);
   }, [zoom, isWheelOverCanvas]);
 
+  // Панорамирование мышью: правая кнопка, Space+drag, либо включённый panMode
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!graphScrollRef.current) return;
+    const isRightButton = e.button === 2;
+    const panActivated = panMode || isSpaceDown || isRightButton;
+    if (!panActivated) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const container = graphScrollRef.current;
+    panInfoRef.current = {
+      startX: e.pageX,
+      startY: e.pageY,
+      startLeft: container.scrollLeft,
+      startTop: container.scrollTop
+    };
+    setIsPanning(true);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+  };
+
+  React.useEffect(() => {
+    if (!isPanning) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!panInfoRef.current || !graphScrollRef.current) return;
+      const container = graphScrollRef.current;
+      const dx = e.pageX - panInfoRef.current.startX;
+      const dy = e.pageY - panInfoRef.current.startY;
+      container.scrollLeft = panInfoRef.current.startLeft - dx;
+      container.scrollTop = panInfoRef.current.startTop - dy;
+    };
+    const endPan = () => {
+      setIsPanning(false);
+      panInfoRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    const handleContextMenu = (e: MouseEvent) => {
+      if (isPanning) {
+        e.preventDefault();
+        endPan();
+      }
+    };
+    document.addEventListener('mousemove', handleMouseMove, { passive: true });
+    document.addEventListener('mouseup', endPan, { passive: true });
+    document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove as any);
+      document.removeEventListener('mouseup', endPan as any);
+      document.removeEventListener('contextmenu', handleContextMenu as any);
+    };
+  }, [isPanning]);
+
+  // Touch жесты: двухпальцевый pan и pinch‑to‑zoom
+  const pinchInfoRef = useRef<any>(null);
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!graphScrollRef.current) return;
+    if (e.touches.length >= 2) {
+      e.preventDefault();
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const cx = (t1.clientX + t2.clientX) / 2;
+      const cy = (t1.clientY + t2.clientY) / 2;
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      const dist = Math.hypot(dx, dy);
+      const container = graphScrollRef.current;
+      const rect = container.getBoundingClientRect();
+      const offsetX = cx - rect.left;
+      const offsetY = cy - rect.top;
+      pinchInfoRef.current = {
+        startCenterX: cx,
+        startCenterY: cy,
+        startOffsetX: offsetX,
+        startOffsetY: offsetY,
+        startLeft: container.scrollLeft,
+        startTop: container.scrollTop,
+        startZoom: zoom,
+        startDist: dist,
+        worldX: (container.scrollLeft + offsetX) / (zoom || 1),
+        worldY: (container.scrollTop + offsetY) / (zoom || 1)
+      };
+    }
+  };
+  const onTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!graphScrollRef.current) return;
+    if (e.touches.length >= 2 && pinchInfoRef.current) {
+      e.preventDefault();
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const cx = (t1.clientX + t2.clientX) / 2;
+      const cy = (t1.clientY + t2.clientY) / 2;
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      const dist = Math.hypot(dx, dy);
+      const scaleFactor = dist / (pinchInfoRef.current.startDist || 1);
+      const nextZoom = Math.min(2, Math.max(0.5, (pinchInfoRef.current.startZoom || 1) * scaleFactor));
+      setZoom(nextZoom);
+      const container = graphScrollRef.current;
+      const rect = container.getBoundingClientRect();
+      const offsetX = cx - rect.left;
+      const offsetY = cy - rect.top;
+      // Панорамирование по смещению центра жеста
+      const centerDx = cx - pinchInfoRef.current.startCenterX;
+      const centerDy = cy - pinchInfoRef.current.startCenterY;
+      // Сохранение фокуса по world координате
+      container.scrollLeft = Math.max(0, pinchInfoRef.current.worldX * nextZoom - offsetX - centerDx);
+      container.scrollTop = Math.max(0, pinchInfoRef.current.worldY * nextZoom - offsetY - centerDy);
+    }
+  };
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length < 2) {
+      pinchInfoRef.current = null;
+    }
+  };
+
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
@@ -1012,29 +1266,31 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   };
 
   // Функция обновления позиции хотспота
-  const updateHotspotPosition = useCallback((choiceNodeId: string, edgeId: string, x: number, y: number) => {
+  const updateHotspot = useCallback((choiceNodeId: string, edgeId: string, partial: { x?: number; y?: number; width?: number; height?: number; shape?: 'rect' | 'ellipse' }) => {
     setNodes(prev => {
-      const oldNode = prev[choiceNodeId];
-      
+      const prevNode = prev[choiceNodeId];
+      const prevHotspot = prevNode?.data?.hotspots?.[edgeId] || {};
+      const nextHotspot = {
+        ...prevHotspot,
+        x: partial.x !== undefined ? partial.x : (prevHotspot.x ?? 10),
+        y: partial.y !== undefined ? partial.y : (prevHotspot.y ?? 10),
+        width: partial.width !== undefined ? partial.width : (prevHotspot.width ?? 20),
+        height: partial.height !== undefined ? partial.height : (prevHotspot.height ?? 8),
+        shape: partial.shape !== undefined ? partial.shape : (prevHotspot.shape ?? 'rect')
+      };
+
       const updatedNode = {
-        ...prev[choiceNodeId],
+        ...prevNode,
         data: {
-          ...prev[choiceNodeId].data,
+          ...prevNode.data,
           hotspots: {
-            ...prev[choiceNodeId].data.hotspots,
-            [edgeId]: {
-              ...prev[choiceNodeId].data.hotspots?.[edgeId],
-              x,
-              y
-            }
+            ...prevNode.data.hotspots,
+            [edgeId]: nextHotspot
           }
         }
       };
-      
-      return {
-        ...prev,
-        [choiceNodeId]: updatedNode
-      };
+
+      return { ...prev, [choiceNodeId]: updatedNode };
     });
   }, []);
 
@@ -1045,7 +1301,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       x: savedHotspot?.x ?? defaultX,
       y: savedHotspot?.y ?? defaultY,
       width: savedHotspot?.width ?? 20,
-      height: savedHotspot?.height ?? 8
+      height: savedHotspot?.height ?? 8,
+      shape: savedHotspot?.shape ?? 'rect'
     };
     
     return result;
@@ -1143,12 +1400,13 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   };
 
   const handleNodeClick = (nodeId, isShiftClick, isCtrlClick) => {
+    const linkingActive = linkMode || isShiftClick;
     if (isCtrlClick) {
       detachNodeFromParents(nodeId);
       return;
     }
     
-    if (!isShiftClick) {
+    if (!linkingActive) {
       setSelectedNodeId(nodeId);
       return;
     }
@@ -1268,6 +1526,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 y: position.y,
                 width: position.width,
                 height: position.height,
+                shape: position.shape,
                 label: label,
                 targetNodeId: edge.to,
                 optionIndex: index,
@@ -1407,7 +1666,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                       {item.hotspots && (
                         <div className="absolute inset-0">
                           {item.hotspots.items.map((hotspot, hotspotIndex) => (
-                            <DraggableHotspot
+                              <DraggableHotspot
                               key={hotspot.id}
                               hotspot={{
                                 ...hotspot,
@@ -1415,7 +1674,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                                 title: `Выбрать: ${hotspot.label}`
                               }}
                               choiceNodeId={item.hotspots.choiceNodeId}
-                              onPositionUpdate={updateHotspotPosition}
+                                onHotspotUpdate={updateHotspot}
                               isInViewMode={true}
                             />
                           ))}
@@ -1827,6 +2086,16 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 onMouseEnter={() => setIsWheelOverCanvas(true)}
                 onMouseLeave={() => setIsWheelOverCanvas(false)}
                 className="w-full h-full border border-gray-200 rounded overflow-auto bg-gray-50 relative"
+                onMouseDown={handleCanvasMouseDown}
+                onContextMenu={(e) => {
+                  // Блокируем контекстное меню, если хотим панорамировать правой кнопкой
+                  if (panMode) {
+                    e.preventDefault();
+                  }
+                }}
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
               >
               <div className="relative" style={{ width: '2000px', height: '1500px', transformOrigin: '0 0', transform: `scale(${zoom})` }}>
                 
@@ -1951,6 +2220,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                         onDeleteNode={deleteNode}
                         onUpdatePosition={updateNodePosition}
                         scale={zoom}
+                        panActive={panMode || isSpaceDown || isPanning}
                       />
                     );
                   })}
@@ -2085,6 +2355,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                                         y: position.y,
                                         width: position.width,
                                         height: position.height,
+                                        shape: position.shape,
                                         label: label,
                                         targetNodeId: edge.to,
                                         optionIndex: index,
@@ -2093,7 +2364,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                                         title: `Хотспот: ${label} (перетащите для изменения позиции)`
                                       }}
                                       choiceNodeId={selectedNodeId}
-                                      onPositionUpdate={updateHotspotPosition}
+                                      onHotspotUpdate={updateHotspot}
                                       isInViewMode={false} // В области предпросмотра можно перетаскивать
                                     />
                                   );
