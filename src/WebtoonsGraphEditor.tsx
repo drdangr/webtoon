@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer } from 'lucide-react';
+import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2 } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
 import { storageService } from './services/storage.service';
 import { projectsService } from './services/projects.service';
@@ -858,6 +858,16 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isPanning, setIsPanning] = useState(false);
   const panInfoRef = useRef<any>(null);
   const [isSpaceDown, setIsSpaceDown] = useState(false);
+  // Детектируем мобильный (coarse) указатель для адаптивного UI
+  const [isCoarse, setIsCoarse] = useState(false);
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).matchMedia) return;
+    const m = window.matchMedia('(pointer: coarse)');
+    const update = () => setIsCoarse(!!m.matches);
+    update();
+    m.addEventListener?.('change', update);
+    return () => m.removeEventListener?.('change', update);
+  }, []);
 
   // =====================
   // Undo / Redo (локальная история)
@@ -1164,6 +1174,28 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     return () => window.removeEventListener('wheel', handleWheel, { capture: true } as any);
   }, [zoom, isWheelOverCanvas]);
+
+  // Кнопки Undo/Redo в UI
+  const uiUndo = React.useCallback(() => {
+    if (mode !== 'constructor') return;
+    const stack = historyRef.current;
+    if (!stack || stack.length <= 1) return;
+    const current = stack.pop();
+    redoRef.current.push(current);
+    const prev = stack[stack.length - 1];
+    applySnapshot(prev);
+  }, [mode, applySnapshot]);
+
+  const uiRedo = React.useCallback(() => {
+    if (mode !== 'constructor') return;
+    const redoStack = redoRef.current;
+    if (!redoStack || redoStack.length === 0) return;
+    const snap = redoStack.pop();
+    if (snap) {
+      historyRef.current.push(makeSnapshot());
+      applySnapshot(snap);
+    }
+  }, [mode, applySnapshot, makeSnapshot]);
 
   // Панорамирование мышью: правая кнопка, Space+drag, либо включённый panMode
   const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -2112,7 +2144,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-full">
+       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-full">
+        {/* Мобильный нижний тулбар */}
+        {isCoarse && (
+          <div className="fixed bottom-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur px-3 py-2 rounded-xl shadow border">
+            <button
+              onClick={() => setLinkMode(v => !v)}
+              className={`px-3 py-1.5 rounded border text-sm ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+            >Связи</button>
+            <button onClick={uiUndo} className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 flex items-center justify-center" title="Отменить">
+              <Undo2 size={18} />
+            </button>
+            <button onClick={uiRedo} className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 flex items-center justify-center" title="Повторить">
+              <Redo2 size={18} />
+            </button>
+          </div>
+        )}
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4">
             <h3 className="font-semibold text-gray-800 mb-3">{t.editor.tools.imagePool}</h3>
@@ -2279,7 +2326,32 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
 
         <div className="lg:col-span-3 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4 h-96 lg:h-[400px] relative border">
-            <h2 className="text-xl font-semibold mb-4">{t.editor.graph.title}</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">{t.editor.graph.title}</h2>
+              <div className="hidden lg:flex items-center gap-2">
+                <button
+                  onClick={() => setLinkMode(v => !v)}
+                  className={`px-3 py-1.5 rounded border text-sm ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  title={linkMode ? 'Режим связывания: ВКЛ' : 'Режим связывания: ВЫКЛ'}
+                >
+                  Связи
+                </button>
+                <button
+                  onClick={uiUndo}
+                  className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center"
+                  title="Отменить (Ctrl+Z)"
+                >
+                  <Undo2 size={16} />
+                </button>
+                <button
+                  onClick={uiRedo}
+                  className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center"
+                  title="Повторить (Ctrl+Y или Ctrl+Shift+Z)"
+                >
+                  <Redo2 size={16} />
+                </button>
+              </div>
+            </div>
             
               <div 
                 ref={graphScrollRef}
