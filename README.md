@@ -1,6 +1,6 @@
 # Webtoon Gallery & Graph Editor
 
-A comprehensive platform for creating, managing, and sharing interactive vertical comics (webtoons) with multi-language support, Supabase backend, social features, and real-time collaboration. Now deployed at https://webtoon-delta.vercel.app
+A comprehensive platform for creating, managing, and sharing interactive vertical comics (webtoons) with multi-language support, Supabase backend, and real-time social updates. Now deployed at https://webtoon-delta.vercel.app
 
 ## 🎯 Overview
 
@@ -12,7 +12,8 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Supabase Authentication**: Secure registration with email/password and GitHub OAuth
 - **User Profiles**: Complete profile system with avatars, bio, and statistics
 - **Project Gallery**: Browse and manage multiple webtoon projects with thumbnails and social metrics
-- **Social Interactions**: Like projects, view counts, and user following system
+- **Social Interactions**: Likes and view counts with real-time updates
+- **Comments**: Project comments with author self-moderation (delete own comments)
 - **Real-time Updates**: Live social metrics and interaction feedback
 - **Author Attribution**: Track project creators with detailed author profiles
 
@@ -43,7 +44,8 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Go to START**: Quick navigation to story beginning
 - **Circular Layout**: Auto-arrange nodes in circular pattern
 - **Context-aware Positioning**: New nodes appear near selected context
-- **Auto-save**: Automatic project saving with 1-second debounce
+- **Auto-save**: Automatic project saving with debounced queue (~1.5s)
+- **Undo / Redo**: Up to 30 steps (Ctrl+Z / Ctrl+Shift+Z; works with any keyboard layout)
 
 ### 📱 Mobile-Optimized Design
 - **Vertical Layout**: Optimized for mobile webtoon consumption
@@ -121,6 +123,7 @@ Visit the deployed application at: **https://webtoon-delta.vercel.app**
 - **Sort Options**: Sort by newest, most popular (views), or most liked
 - **Social Interactions**: Like projects and view real-time like counts
 - **Author Profiles**: Click on authors to view their complete profiles and project collections
+- **Comments Counter**: Comments count shown on project cards
 - **Edit Own Projects**: Full editing access for projects you created
 - **View Others' Projects**: Read-only access to other users' projects with view tracking
 - **Delete Projects**: Remove your own projects (with confirmation)
@@ -198,18 +201,17 @@ src/
 - **User Profiles**: Automatic profile creation with customizable information
 - **Session Management**: Persistent login state with secure token refresh
 - **Project Ownership**: Users can only edit their own projects with RLS policies
-- **Social Features**: User following, profile statistics, and public profiles
+- **Social Features**: Public profiles and basic statistics
  - **Email Confirmation Notice**: After email registration, the UI explicitly prompts users to check their inbox for confirmation
 
 ### Multi-Language System
 - **Real-time Translation**: Instant UI language switching
 - **Comprehensive Coverage**: All text elements, buttons, tooltips, and messages
 - **Language Persistence**: User preference saved across browser sessions
-- **Flag Indicators**: Visual language selection with country flags
 
 ### Gallery & Project Management
 - **Project Cards**: Visual grid layout with thumbnails, metadata, and social metrics
-- **Genre Filtering**: Filter projects by 10 predefined genres with custom icons
+- **Genre Filtering**: Filter projects by 10 predefined genres
 - **Sorting Options**: Sort by creation date, view count, or like count
 - **Social Metrics**: Real-time view counts and like buttons with animations
 - **Author Attribution**: Clickable author profiles with statistics
@@ -217,11 +219,12 @@ src/
 - **Thumbnail System**: Custom preview images stored in Supabase Storage
 - **Real-time Updates**: Live updates of social interactions
  - **Read-only Sandbox for Non-authors**: Non-authors can interact with the editor UI, but their changes are not persisted
+ - **Comments**: Read in viewer mode; add comments; authors can delete their own comments
 
 ### Graph Interaction System
 - **Node Selection**: Click-based selection with visual feedback
 - **Connection Management**: Shift+click to connect, Ctrl+click to disconnect
-- **Drag & Drop**: Repositionable nodes with collision detection
+- **Drag & Drop**: Repositionable nodes
 - **Context Awareness**: New nodes appear relative to selected nodes
 - **Auto-save**: Continuous project saving with debounce
  - **Zoom & Persistence**: Ctrl + mouse wheel zoom centered under cursor; editor restores last scroll position and zoom level; first open centers on START
@@ -233,7 +236,6 @@ src/
 - **Node Information**: Shows connections, position, and metadata
 - **Dynamic Sizing**: Container adapts to image dimensions
 - **Read-only Mode**: Non-authors can preview but not edit
-- **Version Control**: Access to different project versions
 
 ### Choice Node System
 - **Multiple Options**: Support for branching storylines
@@ -247,8 +249,7 @@ src/
 - **Invisible Interface**: In viewer mode, hotspots are transparent and only show labels on hover
 - **Smart Positioning**: Place hotspots over speech bubbles, characters, or objects for natural interaction
 - **Seamless Navigation**: Click hotspots to navigate through story branches without traditional UI elements
-- **Database Storage**: Hotspot positions saved in dedicated database table
-- **Analytics Tracking**: Click tracking for hotspot interaction analytics
+
 
 ## 🔧 Development
 
@@ -298,9 +299,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - ✅ Real-time interactions
 - ✅ Production deployment on Vercel
 - ✅ Multi-language support (RU/UA/EN)
-- 🚧 Comments system (planned)
-- 🚧 User following (planned)
+- ✅ Comments system (list, add, delete own)
 - 🚧 Advanced analytics (planned)
+- ✅ Ctrl+wheel zoom with persistence
+- ✅ Undo/Redo stack in editor
+- ✅ Read-only sandbox for non-authors
 
 ---
 
