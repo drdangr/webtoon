@@ -25,6 +25,15 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
   const dragInfo = useRef(null);
   const resizeInfo = useRef(null);
   const lastUpdateTime = useRef(0); // Возвращаем легкий throttling
+  const isCoarsePointer = React.useMemo(() => {
+    if (typeof window === 'undefined' || !(window as any).matchMedia) return false;
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+      return false;
+    }
+  }, []);
+  const handleSizePx = isCoarsePointer ? 28 : 12;
   
   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
@@ -373,6 +382,27 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
           {/* Хэндл ресайза */}
           <div
             onMouseDown={handleResizeMouseDown}
+            onPointerDown={(e) => {
+              if (isInViewMode) return;
+              if (isDragging || isResizing) return;
+              try { (e.target as any)?.setPointerCapture?.(e.pointerId); } catch {}
+              const container = hotspotRef.current?.parentElement;
+              if (!container) return;
+              resizeInfo.current = {
+                startX: (e as any).pageX,
+                startY: (e as any).pageY,
+                initialWidth: hotspot.width ?? 20,
+                initialHeight: hotspot.height ?? 8,
+                initialX: hotspot.x,
+                initialY: hotspot.y,
+                containerRect: container.getBoundingClientRect()
+              };
+              setIsResizing(true);
+              document.body.style.cursor = 'nwse-resize';
+              document.body.style.userSelect = 'none';
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             onTouchStart={(e) => {
               if (isInViewMode) return;
               if (isDragging || isResizing) return;
@@ -395,7 +425,13 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
               e.preventDefault();
               e.stopPropagation();
             }}
-            className="absolute -bottom-1 -right-1 w-3 h-3 bg-white border border-gray-500 rounded-sm cursor-nwse-resize"
+            className="absolute bg-white border border-gray-500 rounded-sm cursor-nwse-resize"
+            style={{
+              right: '-2px',
+              bottom: '-2px',
+              width: `${handleSizePx}px`,
+              height: `${handleSizePx}px`,
+            }}
             title="Изменить размер"
           />
         </>
