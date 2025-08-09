@@ -2328,13 +2328,21 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           <div className="bg-white rounded-lg shadow-sm p-4 h-96 lg:h-[400px] relative border">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">{t.editor.graph.title}</h2>
-              <div className="hidden lg:flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => setLinkMode(v => !v)}
                   className={`px-3 py-1.5 rounded border text-sm ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  title={linkMode ? 'Режим связывания: ВКЛ' : 'Режим связывания: ВЫКЛ'}
+                  title={linkMode ? 'Связать: режим ВКЛ' : 'Связать: режим ВЫКЛ'}
                 >
-                  Связи
+                  Связать
+                </button>
+                <button
+                  onClick={() => { if (selectedNodeId) detachNodeFromParents(selectedNodeId); }}
+                  disabled={!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))}
+                  className={`px-3 py-1.5 rounded border text-sm ${(!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))) ? 'bg-white text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                  title="Разорвать входящую связь выделенной ноды"
+                >
+                  Разорвать
                 </button>
                 <button
                   onClick={uiUndo}
