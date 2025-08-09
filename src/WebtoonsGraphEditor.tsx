@@ -20,11 +20,11 @@ interface Hotspot {
 const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, isInViewMode = false }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const [tempRect, setTempRect] = useState(null); // Временная позиция/размер во время drag/resize
+  const tempRectRef = useRef<any>(null); // текущий прямоугольник во время drag/resize
   const hotspotRef = useRef(null);
   const dragInfo = useRef(null);
   const resizeInfo = useRef(null);
-  const lastUpdateTime = useRef(0); // Возвращаем легкий throttling
+  const frameRef = useRef<number | null>(null); // rAF
   const isCoarsePointer = React.useMemo(() => {
     if (typeof window === 'undefined' || !(window as any).matchMedia) return false;
     try {
@@ -36,6 +36,24 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
   const handleSizePx = isCoarsePointer ? 28 : 12;
   
   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+
+  const applyVisualRect = (rect: { x: number; y: number; width?: number; height?: number }) => {
+    const el = hotspotRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (rect.x !== undefined) el.style.left = rect.x + '%';
+    if (rect.y !== undefined) el.style.top = rect.y + '%';
+    if (rect.width !== undefined) el.style.width = rect.width + '%';
+    if (rect.height !== undefined) el.style.height = rect.height + '%';
+  };
+
+  const scheduleApply = () => {
+    if (frameRef.current) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const rect = tempRectRef.current;
+      if (rect) applyVisualRect(rect);
+    });
+  };
 
   const handleMouseDown = (e) => {
     if (isInViewMode) return; // В режиме просмотра не перетаскиваем
@@ -70,11 +88,6 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     const handleMouseMove = (e) => {
       if (!dragInfo.current) return;
       
-      // Легкий throttling - обновляем не чаще чем каждые 8ms
-      const now = Date.now();
-      if (now - lastUpdateTime.current < 8) return;
-      lastUpdateTime.current = now;
-      
       // Дополнительная проверка - если кнопка мыши больше не нажата, останавливаем
       if (e.buttons === 0) {
         handleMouseUp();
@@ -91,15 +104,15 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       const newX = clamp(initialHotspotX + deltaX, 0, maxX);
       const newY = clamp(initialHotspotY + deltaY, 0, maxY);
       
-      // Во время drag обновляем только локальную позицию - НЕ ТРОГАЕМ глобальное состояние!
-      setTempRect({ x: newX, y: newY, width: hotspot.width, height: hotspot.height });
+      tempRectRef.current = { x: newX, y: newY, width: hotspot.width, height: hotspot.height };
+      scheduleApply();
     };
 
     const handleMouseUp = () => {
       // Если есть временная позиция, сохраняем её в глобальное состояние
-      if (tempRect) {
-        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRect.x, y: tempRect.y });
-        setTempRect(null);
+      if (tempRectRef.current) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRectRef.current.x, y: tempRectRef.current.y });
+        tempRectRef.current = null;
       }
       
       setIsDragging(false);
@@ -125,9 +138,6 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       if (!dragInfo.current) return;
       if (te.touches.length !== 1) return;
       const touch = te.touches[0];
-      const now = Date.now();
-      if (now - lastUpdateTime.current < 8) return;
-      lastUpdateTime.current = now;
       const { startX, startY, initialHotspotX, initialHotspotY, containerRect } = dragInfo.current;
       const deltaX = ((touch.pageX - startX) / containerRect.width) * 100;
       const deltaY = ((touch.pageY - startY) / containerRect.height) * 100;
@@ -135,13 +145,14 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       const maxY = 100 - (hotspot.height ?? 8);
       const newX = clamp(initialHotspotX + deltaX, 0, maxX);
       const newY = clamp(initialHotspotY + deltaY, 0, maxY);
-      setTempRect({ x: newX, y: newY, width: hotspot.width, height: hotspot.height });
+      tempRectRef.current = { x: newX, y: newY, width: hotspot.width, height: hotspot.height };
+      scheduleApply();
       te.preventDefault();
     };
     const handleTouchEnd = () => {
-      if (tempRect) {
-        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRect.x, y: tempRect.y });
-        setTempRect(null);
+      if (tempRectRef.current) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { x: tempRectRef.current.x, y: tempRectRef.current.y });
+        tempRectRef.current = null;
       }
       setIsDragging(false);
       dragInfo.current = null;
@@ -159,7 +170,10 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDragging, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.width, hotspot.height]);
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, [isDragging, choiceNodeId, hotspot.edgeId, onHotspotUpdate, hotspot.width, hotspot.height]);
 
   const handleTouchStart = (e) => {
     if (isInViewMode) return;
@@ -211,9 +225,6 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
 
     const handleMouseMove = (e) => {
       if (!resizeInfo.current) return;
-      const now = Date.now();
-      if (now - lastUpdateTime.current < 8) return;
-      lastUpdateTime.current = now;
 
       if (e.buttons === 0) {
         handleMouseUp();
@@ -231,13 +242,14 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       const nextW = clamp(initialWidth + deltaX, minW, maxW);
       const nextH = clamp(initialHeight + deltaY, minH, maxH);
 
-      setTempRect({ x: hotspot.x, y: hotspot.y, width: nextW, height: nextH });
+      tempRectRef.current = { x: hotspot.x, y: hotspot.y, width: nextW, height: nextH };
+      scheduleApply();
     };
 
     const handleMouseUp = () => {
-      if (tempRect) {
-        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRect.width, height: tempRect.height });
-        setTempRect(null);
+      if (tempRectRef.current) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRectRef.current.width, height: tempRectRef.current.height });
+        tempRectRef.current = null;
       }
       setIsResizing(false);
       resizeInfo.current = null;
@@ -260,9 +272,6 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       if (!resizeInfo.current) return;
       if (te.touches.length !== 1) return;
       const touch = te.touches[0];
-      const now = Date.now();
-      if (now - lastUpdateTime.current < 8) return;
-      lastUpdateTime.current = now;
       const { startX, startY, initialWidth, initialHeight, initialX, initialY, containerRect } = resizeInfo.current;
       const deltaX = ((touch.pageX - startX) / containerRect.width) * 100;
       const deltaY = ((touch.pageY - startY) / containerRect.height) * 100;
@@ -272,13 +281,14 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       const maxH = 100 - initialY;
       const nextW = clamp(initialWidth + deltaX, minW, maxW);
       const nextH = clamp(initialHeight + deltaY, minH, maxH);
-      setTempRect({ x: hotspot.x, y: hotspot.y, width: nextW, height: nextH });
+      tempRectRef.current = { x: hotspot.x, y: hotspot.y, width: nextW, height: nextH };
+      scheduleApply();
       te.preventDefault();
     };
     const handleTouchEnd = () => {
-      if (tempRect) {
-        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRect.width, height: tempRect.height });
-        setTempRect(null);
+      if (tempRectRef.current) {
+        onHotspotUpdate(choiceNodeId, hotspot.edgeId, { width: tempRectRef.current.width, height: tempRectRef.current.height });
+        tempRectRef.current = null;
       }
       setIsResizing(false);
       resizeInfo.current = null;
@@ -295,7 +305,10 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isResizing, choiceNodeId, hotspot.edgeId, onHotspotUpdate, tempRect, hotspot.x, hotspot.y]);
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, [isResizing, choiceNodeId, hotspot.edgeId, onHotspotUpdate, hotspot.x, hotspot.y]);
   
   const handleClick = (e) => {
     if (isInViewMode && hotspot.onClick) {
@@ -347,15 +360,16 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
               : 'bg-orange-500 bg-opacity-70 hover:bg-opacity-90 border-2 border-orange-600 cursor-grab')
       }`}
       style={{
-        left: `${(tempRect ? tempRect.x : hotspot.x)}%`,
-        top: `${(tempRect ? tempRect.y : hotspot.y)}%`,
-        width: `${(tempRect ? tempRect.width : hotspot.width)}%`,
-        height: `${(tempRect ? tempRect.height : hotspot.height)}%`,
+        left: `${hotspot.x}%`,
+        top: `${hotspot.y}%`,
+        width: `${hotspot.width}%`,
+        height: `${hotspot.height}%`,
         minWidth: '60px',
         minHeight: '24px',
         zIndex: isDragging || isResizing ? 1000 : 1,
         borderRadius: hotspot.shape === 'ellipse' ? '9999px' : '0.375rem',
-        touchAction: 'none'
+        touchAction: 'none',
+        willChange: 'left, top, width, height'
       }}
       onPointerDown={handlePointerDown}
       onMouseDown={handleMouseDown}
