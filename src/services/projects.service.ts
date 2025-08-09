@@ -73,34 +73,23 @@ class ProjectsService {
 
       if (error) throw error;
 
-      // Теперь получаем связанные данные для каждого проекта
-      const projectsWithRelations = await Promise.all(
-        (projects || []).map(async (project) => {
-          // Получаем автора
-          const { data: author } = await supabase
-            .from('profiles')
-            .select('id, username, full_name, avatar_url')
-            .eq('id', project.user_id)
-            .single();
+      // Получаем связанные данные батчами (без N+1)
+      const projectList = (projects || []);
+      const authorIds = Array.from(new Set(projectList.map(p => p.user_id)));
+      const genreIds = Array.from(new Set(projectList.map(p => p.genre_id).filter(Boolean)));
 
-          // Получаем жанр
-          let genre = null;
-          if (project.genre_id) {
-            const { data: genreData } = await supabase
-              .from('genres')
-              .select('id, name, slug, color, icon')
-              .eq('id', project.genre_id)
-              .single();
-            genre = genreData;
-          }
+      const [authorsRes, genresRes] = await Promise.all([
+        supabase.from('profiles').select('id, username, full_name, avatar_url').in('id', authorIds),
+        genreIds.length > 0 ? supabase.from('genres').select('id, name, slug, color, icon').in('id', genreIds as any) : Promise.resolve({ data: [] as any })
+      ]);
+      const authorsById = new Map((authorsRes.data || []).map(a => [a.id, a]));
+      const genresById = new Map((genresRes as any).data?.map((g: any) => [g.id, g]) || []);
 
-          return {
-            ...project,
-            author: author || undefined,
-            genre: genre || undefined
-          };
-        })
-      );
+      const projectsWithRelations = projectList.map(project => ({
+        ...project,
+        author: authorsById.get(project.user_id) || undefined,
+        genre: project.genre_id ? genresById.get(project.genre_id) || undefined : undefined
+      }));
 
       // Добавляем is_liked для текущего пользователя за один запрос
       const user = await authService.getCurrentUser();
@@ -401,19 +390,35 @@ class ProjectsService {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Обновляем проект
-      const { data: project, error } = await supabase
-        .from('projects')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', projectId)
-        .eq('user_id', user.id) // Проверка владельца
-        .select()
-        .single();
+      // Чистим undefined поля
+      const cleanedUpdates: any = Object.fromEntries(
+        Object.entries(updates || {}).filter(([, v]) => v !== undefined)
+      );
 
-      if (error) throw error;
+      // Если обновлять нечего (только версия) — пропускаем UPDATE projects, читаем текущую запись
+      let project: Project | null = null;
+      if (Object.keys(cleanedUpdates).length === 0) {
+        const { data: existing } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', projectId)
+          .eq('user_id', user.id)
+          .single();
+        project = existing as any;
+      } else {
+        const { data, error } = await supabase
+          .from('projects')
+          .update({
+            ...cleanedUpdates,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', projectId)
+          .eq('user_id', user.id) // Проверка владельца
+          .select()
+          .single();
+        if (error) throw error;
+        project = data as any;
+      }
 
       // Если есть новая версия, сохраняем её
       if (newVersion && project) {
@@ -519,33 +524,19 @@ class ProjectsService {
     projectId: string,
     images: any
   ): Promise<any> {
-    console.log(`🔍 uploadImagesToStorage вызван:`, {
-      projectId,
-      hasImages: !!images,
-      imagesCount: images ? Object.keys(images).length : 0
-    });
+    // Уменьшаем лог‑спам, чтобы не замедлять обработку
     
     if (!images || Object.keys(images).length === 0) {
-      console.log('⚠️ Нет изображений для загрузки в Storage');
       return {};
     }
 
-    console.log(`🚀 Начинаем загрузку ${Object.keys(images).length} изображений в Storage`);
     const imageUrls: any = {};
     
     for (const [imageId, base64Data] of Object.entries(images)) {
-      console.log(`🔍 Обработка изображения ${imageId}:`, {
-        type: typeof base64Data,
-        isString: typeof base64Data === 'string',
-        startsWithHttp: typeof base64Data === 'string' && base64Data.startsWith('http'),
-        startsWithData: typeof base64Data === 'string' && base64Data.startsWith('data:')
-      });
-      
       if (typeof base64Data === 'string') {
         // Проверяем, не является ли это уже URL (начинается с http)
         if (base64Data.startsWith('http')) {
           imageUrls[imageId] = base64Data;
-          console.log(`⏭️ Изображение ${imageId} уже в Storage`);
           continue;
         }
         
@@ -559,22 +550,18 @@ class ProjectsService {
           
           if (result.url) {
             imageUrls[imageId] = result.url;
-            console.log(`✅ URL получен для ${imageId}: ${result.url}`);
           } else {
-            console.error(`❌ Не удалось загрузить ${imageId}: ${result.error}`);
             // Сохраняем base64 как fallback
             imageUrls[imageId] = base64Data;
           }
         } catch (error) {
-          console.error(`❌ Ошибка при загрузке ${imageId}:`, error);
           imageUrls[imageId] = base64Data;
         }
       } else {
-        console.warn(`⚠️ Изображение ${imageId} не является строкой:`, typeof base64Data);
+        // Нестринг пропускаем тихо
       }
     }
     
-    console.log(`✅ Загружено в Storage: ${Object.keys(imageUrls).filter(k => typeof imageUrls[k] === 'string' && imageUrls[k].startsWith('http')).length} из ${Object.keys(images).length}`);
     return imageUrls;
   }
 
@@ -591,16 +578,14 @@ class ProjectsService {
       const user = await authService.getCurrentUser();
       if (!user) return null;
 
-      // Получаем последний номер версии
-      const { data: lastVersion } = await supabase
+      // Получаем последнюю версию (для upsert)
+      const { data: lastVersionRow } = await supabase
         .from('project_versions')
-        .select('version_number')
+        .select('id, version_number')
         .eq('project_id', projectId)
         .order('version_number', { ascending: false })
         .limit(1)
         .single();
-
-      const nextVersionNumber = (lastVersion?.version_number || 0) + 1;
 
       // Преобразуем объекты изображений в base64 строки
       const imageStrings: any = {};
@@ -621,9 +606,9 @@ class ProjectsService {
       // Создаем копию nodes для модификации
       const nodesWithImages = JSON.parse(JSON.stringify(nodes));
       
-      console.log('💾 Сохраняем версию:', {
+      console.log('💾 Сохраняем версию (upsert):', {
         projectId,
-        versionNumber: nextVersionNumber,
+        baseVersionNumber: lastVersionRow?.version_number || 0,
         hasImages: !!imageUrls,
         imagesKeys: imageUrls ? Object.keys(imageUrls) : [],
         nodesKeys: Object.keys(nodesWithImages)
@@ -644,25 +629,65 @@ class ProjectsService {
               delete node.data.imageData;
               console.log(`✅ Сохранен URL изображения ${imageId} для узла ${nodeId}`);
             }
+            // Всегда удаляем возможные остатки base64, даже если URL не нашли
+            if (node?.data?.imageData) {
+              delete node.data.imageData;
+            }
           }
         });
         
         // Сохраняем URLs для быстрого доступа
         nodesWithImages._imageUrls = imageUrls;
+        // Убираем возможные старые _images чтобы не хранить base64 в версиях
+        if (nodesWithImages._images) {
+          delete nodesWithImages._images;
+        }
         console.log(`💾 Сохранено ${Object.keys(imageUrls).length} URL изображений`);
+
+        // Fallback: если у проекта ещё нет thumbnail, используем первое изображение из версии
+        try {
+          const { data: proj } = await supabase
+            .from('projects')
+            .select('thumbnail_url')
+            .eq('id', projectId)
+            .single();
+          const currentThumb = proj?.thumbnail_url;
+          if (!currentThumb) {
+            const firstUrl = imageUrls[Object.keys(imageUrls)[0]] as string | undefined;
+            if (firstUrl) {
+              await supabase
+                .from('projects')
+                .update({ thumbnail_url: firstUrl, updated_at: new Date().toISOString() })
+                .eq('id', projectId);
+              console.log('🖼️ Установлен thumbnail_url по первому изображению версии');
+            }
+          }
+        } catch (e) {
+          console.warn('Не удалось выполнить fallback для thumbnail_url:', e);
+        }
       } else {
         console.log('⚠️ Нет изображений для сохранения');
+        // Даже если нет новых изображений — подчистим возможные base64
+        Object.keys(nodesWithImages).forEach(nodeId => {
+          const node = nodesWithImages[nodeId];
+          if (node?.data?.imageData) {
+            delete node.data.imageData;
+          }
+        });
+        if (nodesWithImages._images) {
+          delete nodesWithImages._images;
+        }
       }
 
-      // Создаем новую версию
+      // Данные версии для записи
       const versionData: ProjectVersionInsert = {
         project_id: projectId,
-        version_number: nextVersionNumber,
+        version_number: lastVersionRow?.version_number || 1,
         nodes: nodesWithImages,
         edges: edges,
         created_by: user.id
       };
-      
+
       // Проверяем размер данных
       const dataSize = JSON.stringify(versionData).length;
       console.log('📏 Размер данных для сохранения:', {
@@ -678,11 +703,30 @@ class ProjectsService {
         console.warn('⚠️ ВНИМАНИЕ: Размер данных превышает 1 МБ! Возможны проблемы с сохранением.');
       }
 
-      const { data, error } = await supabase
-        .from('project_versions')
-        .insert(versionData)
-        .select()
-        .single();
+      let data: any = null;
+      let error: any = null;
+      if (lastVersionRow?.id) {
+        // Обновляем последнюю версию вместо вставки новой — чтобы не плодить сотни записей
+        const updateRes = await supabase
+          .from('project_versions')
+          .update({
+            nodes: versionData.nodes,
+            edges: versionData.edges
+          })
+          .eq('id', lastVersionRow.id)
+          .select()
+          .single();
+        data = updateRes.data;
+        error = updateRes.error;
+      } else {
+        const insertRes = await supabase
+          .from('project_versions')
+          .insert(versionData)
+          .select()
+          .single();
+        data = insertRes.data;
+        error = insertRes.error;
+      }
 
       if (error) {
         console.error('❌ Ошибка сохранения версии:', error);
@@ -736,12 +780,6 @@ class ProjectsService {
           console.error('❌ КРИТИЧНО: Данные были обрезаны! Исходный размер:', originalSize, 'Сохранено:', savedSize);
         }
       }
-
-      // Обновляем дату изменения проекта
-      await supabase
-        .from('projects')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', projectId);
 
       return data;
     } catch (error: any) {
@@ -861,7 +899,22 @@ class ProjectsService {
         return val;
       })();
 
-      // Прямо пишем в views; триггер увеличит счётчик в projects
+      // Считаем просмотр только для зрителей (не автора проекта)
+      let authorId: string | null = null;
+      const { data: projMeta } = await supabase
+        .from('projects')
+        .select('user_id')
+        .eq('id', projectId)
+        .single();
+      authorId = projMeta?.user_id || null;
+
+      if (!authorId) return null;
+      if (user?.id && user.id === authorId) {
+        // Автор — не записываем просмотр
+        return null;
+      }
+
+      // Прямо пишем в views; серверный триггер увеличит счётчик в projects
       await supabase.from('views').insert({
         project_id: projectId,
         user_id: user?.id || null,
@@ -899,6 +952,123 @@ class ProjectsService {
     } catch (error: any) {
       console.error('GetGenres error:', error);
       return [];
+    }
+  }
+
+  /**
+   * Комментарии (MVP)
+   */
+  async getComments(projectId: string): Promise<Array<{ id: string; project_id: string; user_id: string; content: string; created_at: string; author?: { id: string; username: string; avatar_url: string | null } }>> {
+    try {
+      // 1) Забираем комментарии без join'ов
+      const { data: comments, error } = await supabase
+        .from('comments')
+        .select('id, project_id, user_id, content, created_at')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      const list = comments || [];
+
+      if (list.length === 0) return [];
+
+      // 2) Батчом подгружаем профили авторов
+      const userIds = Array.from(new Set(list.map((c: any) => c.user_id)));
+      const { data: authors } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .in('id', userIds);
+      const byId = new Map((authors || []).map(a => [a.id, a]));
+
+      return list.map((c: any) => ({
+        ...c,
+        author: byId.get(c.user_id) || null
+      }));
+    } catch (error: any) {
+      console.error('GetComments error:', error);
+      return [];
+    }
+  }
+
+  async addComment(projectId: string, content: string, parentId?: string): Promise<{ id: string } | null> {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) {
+        console.warn('addComment: not authenticated');
+        return null;
+      }
+
+      const { data, error } = await supabase
+        .from('comments')
+        .insert({ project_id: projectId, user_id: user.id, parent_id: parentId || null, content })
+        .select('id')
+        .single();
+      if (error) {
+        console.error('addComment insert error:', error);
+        return null;
+      }
+
+      // Опционально инкрементируем локально comment_count (без ожидания)
+      await supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', projectId);
+      return data as any;
+    } catch (error: any) {
+      console.error('AddComment error:', error);
+      return null;
+    }
+  }
+
+  async deleteOwnComment(commentId: string): Promise<boolean> {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      return true;
+    } catch (error: any) {
+      console.error('DeleteComment error:', error);
+      return false;
+    }
+  }
+
+  // Мягкое удаление комментария: разрешаем, если текущий пользователь — автор комментария или автор проекта
+  async deleteComment(commentId: string): Promise<boolean> {
+    try {
+      const user = await authService.getCurrentUser();
+      if (!user) throw new Error('Not authenticated');
+      // Сначала пробуем удалить как свой
+      const own = await this.deleteOwnComment(commentId);
+      if (own) return true;
+
+      // Иначе проверяем, автор ли текущий пользователь проекта
+      const { data: comment } = await supabase
+        .from('comments')
+        .select('id, project_id, user_id')
+        .eq('id', commentId)
+        .single();
+      if (!comment) return false;
+
+      const { data: project } = await supabase
+        .from('projects')
+        .select('user_id')
+        .eq('id', comment.project_id)
+        .single();
+
+      if (project?.user_id === user.id) {
+        const { error } = await supabase
+          .from('comments')
+          .delete()
+          .eq('id', commentId);
+        if (error) throw error;
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('deleteComment error:', e);
+      return false;
     }
   }
 }

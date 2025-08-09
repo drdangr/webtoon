@@ -1,6 +1,9 @@
+// @ts-nocheck
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
+import { storageService } from './services/storage.service';
+import { projectsService } from './services/projects.service';
 
 // Интерфейс для кликабельных областей (хотспотов) на изображениях
 interface Hotspot {
@@ -445,7 +448,7 @@ interface WebtoonsGraphEditorProps {
   isReadOnly: boolean;
   suppressSave?: boolean;
   initialMode?: 'viewer' | 'constructor';
-  onSaveProject: (projectData: { nodes: any; edges: any; images: any; title?: string; description?: string; thumbnail?: string }) => void;
+  onSaveProject: (projectData: { nodes?: any; edges?: any; images?: any; title?: string; description?: string; thumbnail?: string; isPublic?: boolean; isPublished?: boolean; onlyMeta?: boolean }) => void;
   onBackToGallery: () => void;
 }
 
@@ -468,12 +471,31 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [projectTitle, setProjectTitle] = useState(initialProject?.title || t.editor.newComic);
   const [projectDescription, setProjectDescription] = useState(initialProject?.description || t.editor.comicDescription);
   const [projectThumbnail, setProjectThumbnail] = useState(initialProject?.thumbnail || '');
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | ''>('');
+  const [genreId, setGenreId] = useState<string | undefined>((initialProject as any)?.genre_id);
+  const [genres, setGenres] = useState<any[]>([]);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   // Режим публикации: draft (видит только автор) или public (видят все)
   const [publishState, setPublishState] = useState<'draft' | 'public'>(
     initialProject && (initialProject as any).is_public && (initialProject as any).is_published ? 'public' : 'draft'
   );
+  const initialPublishRef = React.useRef(publishState);
+  const firstChangeRef = React.useRef(false);
+  const initialGenreRef = React.useRef<string | undefined>(genreId);
+
+  // загрузка жанров из БД для селекта
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const list = await projectsService.getGenres();
+        setGenres(list || []);
+      } catch (e) {
+        console.warn('Не удалось загрузить жанры', e);
+      }
+    })();
+  }, []);
   
   // Инициализируем nodes и edges из проекта или дефолтными значениями
   const [nodes, setNodes] = useState(() => {
@@ -506,6 +528,103 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isWheelOverCanvas, setIsWheelOverCanvas] = useState(false);
   const graphScrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<{ id: string; name: string; progress: number }[]>([]);
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentText, setCommentText] = useState('');
+  const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
+
+  // =====================
+  // Undo / Redo (локальная история)
+  // =====================
+  const historyRef = useRef<any[]>([]);
+  const redoRef = useRef<any[]>([]);
+  const historyTimerRef = useRef<any>(null);
+  const MAX_HISTORY = 30;
+
+  const makeSnapshot = useCallback(() => ({
+    nodes: JSON.parse(JSON.stringify(nodes)),
+    edges: JSON.parse(JSON.stringify(edges)),
+    images: JSON.parse(JSON.stringify(images)),
+  }), [nodes, edges, images]);
+
+  const applySnapshot = useCallback((snap) => {
+    if (!snap) return;
+    setNodes(JSON.parse(JSON.stringify(snap.nodes || {})));
+    setEdges(JSON.parse(JSON.stringify(snap.edges || [])));
+    setImages(JSON.parse(JSON.stringify(snap.images || {})));
+  }, []);
+
+  const pushHistoryDebounced = useCallback(() => {
+    if (mode !== 'constructor') return; // в режиме просмотра не пишем историю
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      const current = makeSnapshot();
+      const last = historyRef.current[historyRef.current.length - 1];
+      // Простая защита от дубликатов
+      if (last && JSON.stringify(last) === JSON.stringify(current)) return;
+      historyRef.current.push(current);
+      if (historyRef.current.length > MAX_HISTORY) historyRef.current.shift();
+      // Любое новое действие очищает redo-стек
+      redoRef.current = [];
+    }, 400); // 400–500 мс достаточно, чтобы не спамить при drag
+  }, [makeSnapshot, mode]);
+
+  // Инициализируем стартовую точку в истории
+  React.useEffect(() => {
+    if (mode !== 'constructor') return;
+    historyRef.current = [makeSnapshot()];
+    redoRef.current = [];
+    return () => {
+      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Пишем историю на изменения графа (в конструкторе)
+  React.useEffect(() => {
+    if (mode !== 'constructor') return;
+    pushHistoryDebounced();
+  }, [nodes, edges, images, mode, pushHistoryDebounced]);
+
+  // Хоткеи Ctrl+Z / Ctrl+Shift+Z (по scancode, работает во всех раскладках)
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (mode !== 'constructor') return;
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      if (!isCtrlOrMeta) return;
+      const code = e.code; // KeyZ/KeyY независимо от раскладки
+      if (code === 'KeyZ' && !e.shiftKey) {
+        e.preventDefault();
+        const stack = historyRef.current;
+        if (stack.length <= 1) return; // нечего откатывать
+        const current = stack.pop();
+        redoRef.current.push(current);
+        const prev = stack[stack.length - 1];
+        applySnapshot(prev);
+      } else if (code === 'KeyY' || (code === 'KeyZ' && e.shiftKey)) {
+        e.preventDefault();
+        const redoStack = redoRef.current;
+        if (redoStack.length === 0) return;
+        const snap = redoStack.pop();
+        if (snap) {
+          // Текущую в историю
+          historyRef.current.push(makeSnapshot());
+          applySnapshot(snap);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [applySnapshot, makeSnapshot, mode]);
+
+  // Очищаем историю при размонтировании редактора (выход в галерею). Переключение viewer/constructor компонент не размонтирует — история сохранится
+  React.useEffect(() => {
+    return () => {
+      historyRef.current = [];
+      redoRef.current = [];
+      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    };
+  }, []);
 
   // Глобальный стиль для предотвращения выделения текста во время перетаскивания
   React.useEffect(() => {
@@ -536,16 +655,16 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     setMode(initialMode);
   }, [initialMode]);
 
-  // Автосохранение проекта при изменениях (можно подавить)
+  // Автосохранение контента (без статусов публикации)
   React.useEffect(() => {
-    if (suppressSave || isReadOnly) return; // Не сохраняем, если сохранение отключено или read-only
-    
-    // Не сохраняем при первой загрузке
-    if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) {
-      return;
-    }
-    
+    if (mode !== 'constructor') return; // в просмотре не сохраняем
+    if (suppressSave || isReadOnly) return;
+    if (isUploadingThumbnail) return;
+    if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) return;
+
     const timeoutId = setTimeout(() => {
+      // если ещё не было изменений, фиксируем факт первого изменения
+      if (!firstChangeRef.current) firstChangeRef.current = true;
       onSaveProject({
         nodes,
         edges,
@@ -553,14 +672,29 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         title: projectTitle,
         description: projectDescription,
         thumbnail: projectThumbnail,
-        // Преобразуем publishState в пару флагов
-        isPublic: publishState === 'public',
-        isPublished: publishState === 'public'
+        genre_id: genreId
       });
-    }, 1000); // Сохраняем через 1 секунду после последнего изменения
-    
+    }, 1500); // слегка увеличили паузу, чтобы не триггерить частые сохранения при перетаскивании
+
     return () => clearTimeout(timeoutId);
-  }, [nodes, edges, images, projectTitle, projectDescription, projectThumbnail, publishState, onSaveProject, suppressSave, isReadOnly]);
+  }, [mode, nodes, edges, images, projectTitle, projectDescription, projectThumbnail, genreId, onSaveProject, suppressSave, isReadOnly, isUploadingThumbnail]);
+
+  // Лёгкое сохранение статуса публикации (без новой версии)
+  React.useEffect(() => {
+    if (mode !== 'constructor') return;
+    if (suppressSave || isReadOnly) return;
+    if (!initialProject) return;
+    // сохраняем публичность только после первого изменения
+    if (!firstChangeRef.current) return;
+    const timeoutId = setTimeout(() => {
+      onSaveProject({
+        isPublic: publishState === 'public',
+        isPublished: publishState === 'public',
+        onlyMeta: true
+      });
+    }, 300);
+    return () => clearTimeout(timeoutId);
+  }, [mode, publishState, suppressSave, isReadOnly, initialProject, onSaveProject]);
 
   // Обработчики для редактирования полей проекта
   const handleTitleClick = () => {
@@ -588,17 +722,38 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   };
 
   // Обработчик загрузки превью
-  const handleThumbnailUpload = (event) => {
+  const handleThumbnailUpload = async (event) => {
     const file = event.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setProjectThumbnail(e.target.result);
-      };
-      reader.readAsDataURL(file);
-    }
     // Очищаем input чтобы можно было загрузить тот же файл повторно
     event.target.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+
+    // Локальный превью до загрузки
+    const objectUrl = URL.createObjectURL(file);
+    setThumbnailPreviewUrl(objectUrl);
+    setIsUploadingThumbnail(true);
+
+    try {
+      if (!initialProject?.id) {
+        console.warn('Нет id проекта для загрузки превью');
+        return;
+      }
+      const res = await storageService.uploadThumbnail(initialProject.id, file);
+      if (res.url) {
+        setProjectThumbnail(res.url);
+      } else {
+        console.error('Не удалось загрузить превью:', res.error);
+      }
+    } catch (e) {
+      console.error('Thumbnail upload error:', e);
+    } finally {
+      setIsUploadingThumbnail(false);
+      // Очищаем object URL когда получили финальный URL
+      setTimeout(() => {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        setThumbnailPreviewUrl('');
+      }, 0);
+    }
   };
 
   // Восстановление позиции скролла при загрузке проекта (или центрирование на START при первом открытии)
@@ -672,22 +827,35 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   }, [zoom, isWheelOverCanvas]);
 
   const handleImageUpload = (event) => {
-    const files = Array.from(event.target.files);
-    files.forEach(file => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+    // Сбрасываем, чтобы можно было выбрать те же файлы повторно
+    if (event.target) (event.target as HTMLInputElement).value = '';
+
+    files.forEach((file) => {
+      const tmpId = `up_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      setUploadQueue(prev => [...prev, { id: tmpId, name: file.name, progress: 0 }]);
+
       const reader = new FileReader();
+      reader.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          setUploadQueue(prev => prev.map(it => it.id === tmpId ? { ...it, progress: pct } : it));
+        }
+      };
       reader.onload = (e) => {
         const imageId = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const newImage = {
           id: imageId,
           name: file.name.replace(/\.[^/.]+$/, ""),
-          src: e.target.result,
+          src: (e?.target as any)?.result,
           originalName: file.name
         };
-        
-        setImages(prev => ({
-          ...prev,
-          [imageId]: newImage
-        }));
+        setImages(prev => ({ ...prev, [imageId]: newImage }));
+        setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
+      };
+      reader.onerror = () => {
+        setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
       };
       reader.readAsDataURL(file);
     });
@@ -1165,7 +1333,18 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const switchToViewer = () => {
     setMode('viewer');
     setViewerPath(buildViewerPath());
+    // Подгружаем комментарии
+    if (initialProject?.id) {
+      projectsService.getComments(initialProject.id).then(setComments).catch(() => setComments([]));
+    }
   };
+
+  // Подгружаем комментарии при первом открытии, если сразу в режиме просмотра
+  React.useEffect(() => {
+    if (mode === 'viewer' && initialProject?.id) {
+      projectsService.getComments(initialProject.id).then(setComments).catch(() => setComments([]));
+    }
+  }, [mode, initialProject?.id]);
 
   // Автоматически строим путь просмотра при входе в режим viewer
   React.useEffect(() => {
@@ -1180,13 +1359,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       <div className="min-h-screen bg-black">
         <div className="bg-gray-900 text-white p-4 sticky top-0 z-10">
           <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <button
-              onClick={() => setMode('constructor')}
-              className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-            >
-              <ArrowLeft size={16} />
-              {t.viewer.backToConstructor}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setMode('constructor')}
+                className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              >
+                <ArrowLeft size={16} />
+                {t.viewer.backToConstructor}
+              </button>
+              <button
+                onClick={onBackToGallery}
+                className="flex items-center gap-2 px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
+              >
+                <ArrowLeft size={16} />
+                {t.editor.backToGallery}
+              </button>
+            </div>
             <div className="text-sm">
               {t.viewer.imagesInStory}: {viewerPath.filter(item => item.type === 'image').length}
             </div>
@@ -1247,6 +1435,84 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               )}
             </div>
           )}
+          {/* Комментарии (MVP) */}
+          {initialProject?.id && (
+            <div className="max-w-4xl mx-auto px-4 py-6 text-white/90">
+              <h3 className="text-lg font-semibold mb-3">Комментарии</h3>
+              <div className="space-y-4">
+                {/* Список комментариев */}
+                <div className="space-y-3">
+                  {comments.length === 0 ? (
+                    <div className="text-white/50 text-sm">Пока нет комментариев</div>
+                  ) : comments.map((c) => (
+                    <div key={c.id} className="bg-gray-900 rounded p-3 border border-white/10">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {c.author?.avatar_url && (
+                            <img src={c.author.avatar_url} className="w-6 h-6 rounded-full" />
+                          )}
+                          <div className="text-sm text-white/80">{c.author?.username || 'User'}</div>
+                          <div className="text-xs text-white/40">{new Date(c.created_at).toLocaleString()}</div>
+                        </div>
+                        {(currentUser?.id === c.user_id || currentUser?.id === initialProject.authorId) && (
+                          <button
+                            className="text-xs text-red-400 hover:text-red-300"
+                            onClick={async () => {
+                              const ok = await projectsService.deleteComment(c.id);
+                              if (ok) {
+                                const fresh = await projectsService.getComments(initialProject.id);
+                                setComments(fresh);
+                              }
+                            }}
+                          >
+                            Удалить
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap">{c.content}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Форма добавления */}
+                <div className="bg-gray-900 rounded p-3 border border-white/10">
+                  <textarea
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    placeholder="Оставьте комментарий"
+                    className="w-full bg-gray-800 text-white rounded p-2 text-sm outline-none border border-white/10 focus:border-blue-500"
+                    rows={3}
+                  />
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      disabled={!commentText.trim() || isCommentSubmitting}
+                      onClick={async () => {
+                        if (!commentText.trim()) return;
+                        setIsCommentSubmitting(true);
+                        try {
+                          const created = await projectsService.addComment(initialProject.id, commentText.trim());
+                          if (created) {
+                            const fresh = await projectsService.getComments(initialProject.id);
+                            setComments(fresh);
+                            setCommentText('');
+                          } else {
+                            alert('Комментарий не сохранён. Войдите в аккаунт или попробуйте ещё раз.');
+                          }
+                        } catch (e) {
+                          console.error('addComment error', e);
+                          alert('Ошибка добавления комментария');
+                        }
+                        setIsCommentSubmitting(false);
+                      }}
+                      className={`px-3 py-1.5 rounded text-sm ${(!commentText.trim() || isCommentSubmitting) ? 'bg-white/10 text-white/40' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                    >
+                      {isCommentSubmitting ? 'Отправка…' : 'Отправить'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1258,7 +1524,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         <div className="flex items-center justify-between max-w-full mx-auto">
           <div className="flex items-center gap-4">
             <button
-              onClick={onBackToGallery}
+              onClick={async () => {
+                // Перед уходом пытаемся сохранить текущее состояние (для автора)
+                if (!isReadOnly && !suppressSave) {
+                  onSaveProject({
+                    nodes,
+                    edges,
+                    images,
+                    title: projectTitle,
+                    description: projectDescription,
+                    thumbnail: projectThumbnail
+                  });
+                  // короткая пауза, чтобы передать сохранение в очередь
+                  await new Promise(r => setTimeout(r, 50));
+                }
+                onBackToGallery();
+              }}
               className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
             >
               <ArrowLeft size={16} />
@@ -1339,6 +1620,28 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </button>
               </div>
             )}
+          {/* Выбор жанра */}
+          <select
+            value={genreId || ''}
+            onChange={(e) => {
+              const val = e.target.value || undefined;
+              setGenreId(val);
+              // жанр — это тоже изменение: пометим первый чендж
+              if (!firstChangeRef.current) firstChangeRef.current = true;
+              // Принудительно сохраняем метаданные при выборе жанра (быстрый апдейт)
+              onSaveProject({
+                genre_id: val,
+                onlyMeta: true
+              });
+            }}
+            className="px-2 py-1 border rounded text-sm"
+            title="Жанр"
+          >
+            <option value="">Жанр не выбран</option>
+            {genres.map(g => (
+              <option key={g.id} value={g.id}>{g.icon ? g.icon + ' ' : ''}{g.name}</option>
+            ))}
+          </select>
             <button
               onClick={switchToViewer}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1371,6 +1674,21 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               <Upload size={16} />
               {t.editor.tools.uploadImages}
             </button>
+
+            {/* Прогресс загрузки */}
+            {uploadQueue.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {uploadQueue.map(item => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <div className="text-xs text-gray-600 truncate flex-1">{item.name}</div>
+                    <div className="w-28 h-2 bg-gray-200 rounded overflow-hidden">
+                      <div className="h-full bg-blue-500" style={{ width: `${item.progress}%` }} />
+                    </div>
+                    <div className="text-xs w-8 text-right text-gray-600">{item.progress}%</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {Object.values(images).map(image => (
@@ -1425,22 +1743,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               />
               <button
                 onClick={() => document.getElementById('thumbnail-upload')?.click()}
-                className="w-full flex items-center gap-2 p-2 bg-purple-100 text-purple-800 rounded hover:bg-purple-200 transition-colors"
-                disabled={isReadOnly}
+                className={`w-full flex items-center gap-2 p-2 rounded transition-colors ${isUploadingThumbnail ? 'bg-purple-200 text-purple-400 cursor-not-allowed' : 'bg-purple-100 text-purple-800 hover:bg-purple-200'}`}
+                disabled={isReadOnly || isUploadingThumbnail}
               >
                 <Upload size={16} />
-                {t.editor.tools.uploadThumbnail}
+                {isUploadingThumbnail ? 'Загрузка превью…' : t.editor.tools.uploadThumbnail}
               </button>
               
               {/* Отображение текущего превью */}
-              {projectThumbnail && (
+              {(projectThumbnail || thumbnailPreviewUrl) && (
                 <div className="relative">
                   <img 
-                    src={projectThumbnail} 
+                    src={thumbnailPreviewUrl || projectThumbnail} 
                     alt="Превью комикса" 
                     className="w-full h-20 object-cover rounded border-2 border-purple-200"
                   />
-                  {!isReadOnly && (
+                  {!isReadOnly && !isUploadingThumbnail && (
                     <button
                       onClick={() => setProjectThumbnail('')}
                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
@@ -1448,6 +1766,13 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                     >
                       ×
                     </button>
+                  )}
+                  {isUploadingThumbnail && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center rounded">
+                      <div className="w-3/4 h-2 bg-white/30 rounded overflow-hidden">
+                        <div className="h-full w-1/2 bg-white/80 animate-pulse" />
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

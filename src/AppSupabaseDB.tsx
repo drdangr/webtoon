@@ -87,63 +87,13 @@ function Gallery({
       const projectsData = Array.from(combinedMap.values());
       console.log('📁 Найдено проектов:', projectsData.length);
 
-      // Для каждого проекта загружаем последнюю версию
-      const projectsWithData = await Promise.all(
-        projectsData.map(async (project: any) => {
-          const latestVersion = await projectsService.getLatestVersion(project.id);
-          
-          // Извлекаем изображения из nodes (для галереи нужны только URL/base64 строки)
-          const images: any = {};
-          const nodes = latestVersion?.nodes ? JSON.parse(JSON.stringify(latestVersion.nodes)) : {};
-          
-          // Проверяем новый формат с URL (_imageUrls)
-          if (nodes._imageUrls) {
-            Object.assign(images, nodes._imageUrls);
-            delete nodes._imageUrls;
-          }
-          // Fallback на старый формат (_images)
-          else if (nodes._images) {
-            Object.entries(nodes._images).forEach(([key, value]: [string, any]) => {
-              // Если это объект с src, извлекаем строку
-              if (typeof value === 'object' && value.src) {
-                images[key] = value.src;
-              } else {
-                images[key] = value;
-              }
-            });
-            delete nodes._images;
-          }
-          
-          // Также проверяем imageUrl/imageData в узлах
-          Object.keys(nodes).forEach(nodeId => {
-            const node = nodes[nodeId];
-            if (node?.data?.backgroundImage) {
-              if (node.data.imageUrl) {
-                images[node.data.backgroundImage] = node.data.imageUrl;
-              } else if (node.data.imageData) {
-                images[node.data.backgroundImage] = node.data.imageData;
-              }
-            }
-          });
-          
-          console.log(`📄 Проект ${project.title}:`, {
-            id: project.id,
-            hasVersion: !!latestVersion,
-            nodesCount: Object.keys(nodes).filter(k => k !== '_images').length,
-            nodeIds: Object.keys(nodes).filter(k => k !== '_images'),
-            edgesCount: latestVersion ? (latestVersion.edges || []).length : 0,
-            imagesCount: Object.keys(images).length,
-            imageIds: Object.keys(images)
-          });
-          
-          return {
-            ...project,
-            nodes: nodes,
-            edges: latestVersion?.edges || [],
-            images: images
-          };
-        })
-      );
+      // Для галереи не тянем версии и граф — достаточно метаданных проекта (ускорение и меньше таймаутов)
+      const projectsWithData = projectsData.map((project: any) => ({
+        ...project,
+        nodes: {},
+        edges: [],
+        images: {}
+      }));
 
       // Строгая фильтрация на клиенте: свои или публичные опубликованные
       const visible = projectsWithData.filter((p: any) => (
@@ -164,6 +114,45 @@ function Gallery({
       setLoading(false);
     }
   };
+
+  // Realtime лайки: подписка на изменения в таблице likes и обновление счётчиков
+  useEffect(() => {
+    if (!projects || projects.length === 0) return;
+    // Единый канал для галереи
+    const channel = supabase
+      .channel('realtime-likes-gallery')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'likes' },
+        (payload: any) => {
+          const affectedProjectId = (payload.new?.project_id) || (payload.old?.project_id);
+          if (!affectedProjectId) return;
+          // Обновляем только если проект есть на экране
+          const exists = projects.some(p => p.id === affectedProjectId);
+          if (!exists) return;
+          // Игнорируем собственные события, т.к. у нас уже есть локальный оптимистичный апдейт
+          const eventUserId = (payload.new?.user_id) || (payload.old?.user_id);
+          if (eventUserId && currentUser && eventUserId === currentUser.id) return;
+
+          setProjects(prev => prev.map(p => {
+            if (p.id !== affectedProjectId) return p;
+            if (payload.eventType === 'INSERT') {
+              return { ...p, like_count: Math.max(0, (p.like_count || 0) + 1) } as any;
+            }
+            if (payload.eventType === 'DELETE') {
+              return { ...p, like_count: Math.max(0, (p.like_count || 0) - 1) } as any;
+            }
+            return p;
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects.length, currentUser?.id]);
 
   return (
     <div className="min-h-screen bg-[#0b0b0c]">
@@ -300,6 +289,7 @@ function Gallery({
                     </div>
                     <div className="flex gap-3 text-sm text-white/70">
                       <span>👁 {project.view_count}</span>
+                      <span>💬 {project.comment_count || 0}</span>
                       <button
                         onClick={async (e) => {
                           e.preventDefault();
@@ -377,6 +367,9 @@ function AppContent() {
   const [currentProject, setCurrentProject] = useState<ProjectWithData | null>(null);
   const [authorUsername, setAuthorUsername] = useState<string | null>(null);
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
+  const saveInProgressRef = React.useRef(false);
+  const queuedSaveRef = React.useRef<any | null>(null);
+  const [suppressAutoSave, setSuppressAutoSave] = useState(false);
 
   // Подписка на изменения состояния авторизации
   useEffect(() => {
@@ -460,6 +453,7 @@ function AppContent() {
 
   const handleEditProject = async (project: ProjectWithData) => {
     console.log('📝 Открываем проект для редактирования:', project.id);
+    setSuppressAutoSave(false);
     // Увеличиваем счетчик просмотров и синхронизируем UI с БД
     try {
       const newCount = await projectsService.incrementViewCount(project.id);
@@ -468,14 +462,14 @@ function AppContent() {
       console.warn('Не удалось инкрементировать просмотры:', e);
     }
     
-    // Загружаем полные данные проекта
-    const fullProject = await projectsService.getProject(project.id);
+      // Загружаем полные данные проекта (проект + последняя версия)
+      const fullProject = await projectsService.getProject(project.id);
     if (fullProject) {
       const latestVersion = await projectsService.getLatestVersion(project.id);
       
       // Извлекаем изображения из nodes
       const images: any = {};
-      const nodes = latestVersion?.nodes || {};
+        const nodes = latestVersion?.nodes ? JSON.parse(JSON.stringify(latestVersion.nodes)) : {};
       
       // Проверяем новый формат с URL (_imageUrls)
       if (nodes._imageUrls) {
@@ -561,7 +555,7 @@ function AppContent() {
         });
       });
       
-      setCurrentProject({
+       setCurrentProject({
         ...fullProject,
         nodes: nodes,
         edges: latestVersion?.edges || [],
@@ -594,6 +588,13 @@ function AppContent() {
       console.warn('🚫 Попытка сохранить проект не-автором — изменения проигнорированы');
       return;
     }
+
+    // Антидребезг/очередь сохранений, чтобы не бить БД конкурентными запросами
+    if (saveInProgressRef.current && !updatedData.onlyMeta) {
+      queuedSaveRef.current = { ...updatedData };
+      return;
+    }
+    saveInProgressRef.current = true;
 
     // Преобразуем объекты изображений в base64 строки
     const rawImages = updatedData.images || {};
@@ -644,47 +645,117 @@ function AppContent() {
     });
 
     try {
-      // Обновляем проект в БД
-      const updatedProject = await projectsService.updateProject(
-        currentProject.id,
-        {
-          title: updatedData.title || currentProject.title,
-          description: updatedData.description || currentProject.description,
-          thumbnail_url: updatedData.thumbnail || currentProject.thumbnail_url,
-          // publishState → draft/public
-          is_public: typeof updatedData.isPublic === 'boolean' ? updatedData.isPublic : currentProject.is_public,
-          is_published: typeof updatedData.isPublished === 'boolean' ? updatedData.isPublished : currentProject.is_published
-        },
-        {
-          nodes: updatedData.nodes || {},
-          edges: updatedData.edges || [],
-          images: updatedData.images || {}
-        }
-      );
+      let updatedProject: any = null;
+      // Если меняем только метаданные (публикация), не создаём новую версию — быстрый апдейт
+      if (updatedData.onlyMeta) {
+        updatedProject = await projectsService.updateProject(
+          currentProject.id,
+          {
+            is_public: typeof updatedData.isPublic === 'boolean' ? updatedData.isPublic : currentProject.is_public,
+            is_published: typeof updatedData.isPublished === 'boolean' ? updatedData.isPublished : currentProject.is_published,
+            genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
+          }
+        );
+      } else {
+        // Полное сохранение с версией
+        updatedProject = await projectsService.updateProject(
+          currentProject.id,
+          {
+            title: updatedData.title || currentProject.title,
+            description: updatedData.description || currentProject.description,
+            thumbnail_url: updatedData.thumbnail || currentProject.thumbnail_url,
+            // жанр проекта
+            genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
+          },
+          {
+            nodes: updatedData.nodes || {},
+            edges: updatedData.edges || [],
+            images: updatedData.images || {}
+          }
+        );
+      }
 
       if (updatedProject) {
+        // После сохранения читаем последнюю версию, чтобы подтянуть URL изображений вместо base64
+        const latest = !updatedData.onlyMeta ? await projectsService.getLatestVersion(currentProject.id) : null;
+        let nextImages = updatedData.images || {};
+        let nextNodes = updatedData.nodes || {};
+        if (latest?.nodes && latest.nodes._imageUrls) {
+          const urlMap = latest.nodes._imageUrls as Record<string, string>;
+          // Обновляем локальный пул изображений URL-ами
+          nextImages = Object.fromEntries(
+            Object.keys(nextImages).map((key) => {
+              const existing = nextImages[key];
+              const url = urlMap[key];
+              if (url) {
+                return [key, { ...existing, src: url }];
+              }
+              return [key, existing];
+            })
+          );
+          // Также вставим URL в ноды (imageUrl)
+          nextNodes = JSON.parse(JSON.stringify(nextNodes));
+          Object.keys(nextNodes).forEach((nodeId) => {
+            const node = nextNodes[nodeId];
+            if (node?.data?.backgroundImage) {
+              const imgId = node.data.backgroundImage;
+              if (urlMap[imgId]) {
+                if (!node.data) node.data = {};
+                node.data.imageUrl = urlMap[imgId];
+                delete node.data.imageData;
+              }
+            }
+          });
+        }
+
         setCurrentProject({
           ...currentProject,
           ...updatedProject,
-          nodes: updatedData.nodes || {},
-          edges: updatedData.edges || [],
-          images: updatedData.images || {}
+          nodes: (updatedData.onlyMeta ? currentProject.nodes : nextNodes),
+          edges: (updatedData.onlyMeta ? currentProject.edges : (updatedData.edges || [])),
+          images: (updatedData.onlyMeta ? currentProject.images : nextImages)
         });
-        
+
         console.log('✅ Проект успешно сохранен в БД:', updatedProject.id);
       } else {
         console.error('❌ Проект не был обновлен');
       }
     } catch (error) {
       console.error('❌ Ошибка сохранения проекта:', error);
-      alert('Ошибка сохранения проекта: ' + (error as any).message);
+      // Не блокируем пользователя модальными окнами; логируем в консоль
+    }
+    finally {
+      saveInProgressRef.current = false;
+      if (queuedSaveRef.current) {
+        const next = queuedSaveRef.current;
+        queuedSaveRef.current = null;
+        // Запускаем следующее сохранение после микро‑паузы
+        setTimeout(() => handleSaveProject(next), 50);
+      }
     }
   };
 
-  const handleBackToGallery = () => {
+  const handleBackToGallery = async () => {
     console.log('🔙 Возвращаемся в галерею');
+    setSuppressAutoSave(true); // блокируем новые автосейвы из редактора
+    // Даем возможности завершиться текущему/очередному сохранению (до 2 секунд)
+    const start = Date.now();
+    while ((saveInProgressRef.current || queuedSaveRef.current) && Date.now() - start < 2000) {
+      // Если есть отложенное сохранение, запустим его вручную
+      if (!saveInProgressRef.current && queuedSaveRef.current) {
+        const next = queuedSaveRef.current;
+        queuedSaveRef.current = null;
+        await new Promise((r) => setTimeout(r, 10));
+        await (async () => {
+          try {
+            await handleSaveProject(next);
+          } catch {}
+        })();
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
     setCurrentProject(null);
-    setGalleryRefreshKey(prev => prev + 1); // Триггерим перезагрузку галереи
+    setGalleryRefreshKey(prev => prev + 1);
     setCurrentView('gallery');
   };
 
@@ -753,14 +824,18 @@ function AppContent() {
         edges: currentProject.edges || [],
         images: currentProject.images || {},
         authorId: currentProject.user_id,
-        authorName: currentProject.author?.username || 'Unknown'
+        authorName: currentProject.author?.username || 'Unknown',
+        // передаём публикацию и жанр для корректной инициализации
+        is_public: (currentProject as any)?.is_public,
+        is_published: (currentProject as any)?.is_published,
+        genre_id: (currentProject as any)?.genre_id
       } as any) : null}
       currentUser={{
         id: session.user.id,
         username: profile?.username || session.user.email || 'User'
       }}
       isReadOnly={currentProject?.user_id !== session.user.id}
-      suppressSave={currentProject?.user_id !== session.user.id}
+      suppressSave={currentProject?.user_id !== session.user.id || suppressAutoSave}
       initialMode={currentProject?.user_id !== session.user.id ? 'viewer' : 'constructor'}
       onSaveProject={handleSaveProject}
       onBackToGallery={handleBackToGallery}
@@ -783,6 +858,7 @@ function AuthorPage({ username, onBack }: { username: string; onBack: () => void
   const [loading, setLoading] = React.useState(true);
   const [author, setAuthor] = React.useState<Profile | null>(null);
   const [projects, setProjects] = React.useState<any[]>([]);
+  const [currentUserId, setCurrentUserId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const load = async () => {
@@ -815,6 +891,48 @@ function AuthorPage({ username, onBack }: { username: string; onBack: () => void
     };
     load();
   }, [username]);
+
+  // Текущий пользователь (для фильтрации собственных событий в realtime)
+  React.useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id || null);
+    }).catch(() => setCurrentUserId(null));
+  }, []);
+
+  // Realtime лайки для страницы автора
+  React.useEffect(() => {
+    if (!projects || projects.length === 0) return;
+    const channel = supabase
+      .channel('realtime-likes-author')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'likes' },
+        (payload: any) => {
+          const affectedProjectId = (payload.new?.project_id) || (payload.old?.project_id);
+          if (!affectedProjectId) return;
+          const exists = projects.some(p => p.id === affectedProjectId);
+          if (!exists) return;
+          const eventUserId = (payload.new?.user_id) || (payload.old?.user_id);
+          if (eventUserId && currentUserId && eventUserId === currentUserId) return;
+
+          setProjects(prev => prev.map(p => {
+            if (p.id !== affectedProjectId) return p;
+            if (payload.eventType === 'INSERT') {
+              return { ...p, like_count: Math.max(0, (p.like_count || 0) + 1) };
+            }
+            if (payload.eventType === 'DELETE') {
+              return { ...p, like_count: Math.max(0, (p.like_count || 0) - 1) };
+            }
+            return p;
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [projects.length, currentUserId]);
 
   return (
     <div className="min-h-screen bg-[#0b0b0c]">
