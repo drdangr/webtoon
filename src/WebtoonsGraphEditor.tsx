@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Images } from 'lucide-react';
+import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Image as ImageIcon } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
 import { storageService } from './services/storage.service';
 import { projectsService } from './services/projects.service';
@@ -2379,7 +2379,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               <div className="flex items-center gap-2">
                 {/* Галерея */}
                 <button onClick={() => setIsMobileGalleryOpen(true)} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title="Галерея">
-                  <Images size={18} />
+                  <ImageIcon size={18} />
                 </button>
                 {/* Просмотр */}
                 <button onClick={switchToViewer} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.viewComic}>
