@@ -83,6 +83,24 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.body.style.userSelect = 'none';
   };
 
+  const handleTouchStartNode = (e) => {
+    if (isDragging) return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragInfo.current = {
+      startX: t.pageX,
+      startY: t.pageY,
+      nodeStartX: node.position.x,
+      nodeStartY: node.position.y
+    };
+    setIsDragging(true);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    document.body.classList.add('dragging');
+  };
+
   React.useEffect(() => {
     if (!isDragging) return;
 
@@ -139,6 +157,23 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.addEventListener('pointermove', handlePointerMove, { passive: false });
     document.addEventListener('pointerup', handlePointerUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+    const handleTouchMove = (te) => {
+      if (!dragInfo.current) return;
+      const t = te.touches && te.touches[0];
+      if (!t) return;
+      const k = scale || 1;
+      const deltaX = (t.pageX - dragInfo.current.startX) / k;
+      const deltaY = (t.pageY - dragInfo.current.startY) / k;
+      const newX = Math.max(10, Math.min(1900, dragInfo.current.nodeStartX + deltaX));
+      const newY = Math.max(10, Math.min(1400, dragInfo.current.nodeStartY + deltaY));
+      onUpdatePosition(node.id, { x: newX, y: newY });
+      te.preventDefault();
+    };
+    const handleTouchEnd = () => {
+      handleMouseUp();
+    };
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
     // Touch версии
     const handleTouchMove = (te) => {
       if (!dragInfo.current) return;
@@ -594,6 +629,8 @@ const NodeComponent = ({
       document.body.style.MozUserSelect = '';
       document.body.style.msUserSelect = '';
       document.body.classList.remove('dragging');
+      document.removeEventListener('touchmove', handleTouchMove as any);
+      document.removeEventListener('touchend', handleTouchEnd as any);
     };
   }, [isDragging, node.id, onUpdatePosition]);
 
@@ -628,6 +665,7 @@ const NodeComponent = ({
       <div
         style={baseStyle}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStartNode}
         className={`w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white font-bold border-4 ${
           isSelected ? 'border-blue-400 ring-4 ring-blue-200' : 'border-green-600'
         } shadow-lg ${isDragging ? 'opacity-75 node-dragging' : 'transition-all'}`}
@@ -646,6 +684,7 @@ const NodeComponent = ({
       <div
         style={baseStyle}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStartNode}
         className={`relative border-4 ${
           isSelected 
             ? 'border-blue-400 ring-4 ring-blue-200' 
@@ -712,6 +751,7 @@ const NodeComponent = ({
       <div
         style={baseStyle}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStartNode}
         className={`relative border-4 ${
           isSelected 
             ? 'border-blue-400 ring-4 ring-blue-200' 
