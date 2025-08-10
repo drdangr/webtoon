@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Image as ImageIcon } from 'lucide-react';
+import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Image as ImageIcon, GitBranchPlus } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
 import { getLocalizedGenreName } from './utils/genreTranslations';
 import { storageService } from './services/storage.service';
@@ -2476,7 +2476,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </button>
                 {/* Создать ноду выбора */}
                 <button onClick={createChoiceNode} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.tools.addChoice}>
-                  <MousePointer size={18} />
+                  <GitBranchPlus size={18} />
                 </button>
                 {/* Связать */}
                 <button onClick={() => setLinkMode(v => !v)} className={`p-2 rounded border ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`} title={linkMode ? 'Связать: режим ВКЛ' : 'Связать: режим ВЫКЛ'}>
