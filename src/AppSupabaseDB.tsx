@@ -557,6 +557,30 @@ function AppContent() {
           }
         }
       });
+
+      // 3) Дополняем библиотеку изображений записями из БД, даже если они не используются на графе
+      try {
+        const dbImages = await storageService.getProjectImages(project.id);
+        if (dbImages && dbImages.length > 0) {
+          dbImages.forEach((img: any) => {
+            const filePath: string = img.file_path || '';
+            const fileName: string = img.file_name || '';
+            const fileUrl: string = img.file_url || '';
+            const baseName = (filePath.split('/').pop() || fileName || '').split('.')[0] || `img_${img.id}`;
+            if (!images[baseName]) {
+              images[baseName] = {
+                id: baseName,
+                name: (fileName || baseName).replace(/\.[^/.]+$/, ''),
+                src: fileUrl,
+                originalName: fileName || `${baseName}.png`
+              };
+            }
+          });
+          console.log('📚 Добавлены изображения из БД (включая неиспользуемые):', dbImages.length);
+        }
+      } catch (e) {
+        console.warn('Не удалось загрузить список изображений проекта из БД:', e);
+      }
       
       console.log('📸 Результат загрузки проекта:', {
         projectId: project.id,
@@ -621,24 +645,29 @@ function AppContent() {
     }
     saveInProgressRef.current = true;
 
-    // Преобразуем объекты изображений в base64 строки
+    // Сначала фиксируем ноды
+    const nodesToSave = updatedData.nodes || {};
+    // Определяем, какие изображения реально используются на графе
+    const usedImages = new Set<string>();
+    Object.values(nodesToSave).forEach((node: any) => {
+      if (node?.data?.backgroundImage) {
+        usedImages.add(node.data.backgroundImage);
+      }
+    });
+    // Преобразуем объекты изображений в base64 строки, фильтруем по использованию
     const rawImages = updatedData.images || {};
     const imagesToSave: any = {};
-    
     Object.entries(rawImages).forEach(([key, value]: [string, any]) => {
+      if (!usedImages.has(key)) return; // не загружаем неиспользуемые
       if (typeof value === 'object' && value.src) {
-        // Если это объект с полем src, извлекаем base64
         imagesToSave[key] = value.src;
         console.log(`📸 Извлечен base64 из объекта для ${key}`);
       } else if (typeof value === 'string') {
-        // Если уже строка, используем как есть
         imagesToSave[key] = value;
       } else {
         console.warn(`⚠️ Неизвестный формат изображения ${key}:`, typeof value);
       }
     });
-    
-    const nodesToSave = updatedData.nodes || {};
     
     console.log('📝 Сохраняем проект:', {
       id: currentProject.id,
@@ -652,14 +681,6 @@ function AppContent() {
       imagesCount: Object.keys(imagesToSave).length,
       imageIds: Object.keys(imagesToSave),
       imageFormats: Object.entries(rawImages).map(([k, v]) => `${k}: ${typeof v}`)
-    });
-    
-    // Проверяем, какие изображения используются в узлах
-    const usedImages = new Set<string>();
-    Object.values(nodesToSave).forEach((node: any) => {
-      if (node?.data?.backgroundImage) {
-        usedImages.add(node.data.backgroundImage);
-      }
     });
     
     // Выводим информацию об использовании изображений
@@ -700,9 +721,9 @@ function AppContent() {
             genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
           },
           {
-            nodes: updatedData.nodes || {},
+            nodes: nodesToSave,
             edges: updatedData.edges || [],
-            images: updatedData.images || {}
+            images: imagesToSave
           }
         );
       }
@@ -773,9 +794,10 @@ function AppContent() {
   const handleBackToGallery = async () => {
     console.log('🔙 Возвращаемся в галерею');
     setSuppressAutoSave(true); // блокируем новые автосейвы из редактора
-    // Даем возможности завершиться текущему/очередному сохранению (до 2 секунд)
+    // Даем возможности завершиться текущему/очередному сохранению (до 8 секунд)
     const start = Date.now();
-    while ((saveInProgressRef.current || queuedSaveRef.current) && Date.now() - start < 2000) {
+    const MAX_WAIT_MS = 8000;
+    while ((saveInProgressRef.current || queuedSaveRef.current) && Date.now() - start < MAX_WAIT_MS) {
       // Если есть отложенное сохранение, запустим его вручную
       if (!saveInProgressRef.current && queuedSaveRef.current) {
         const next = queuedSaveRef.current;

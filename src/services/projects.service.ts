@@ -524,45 +524,25 @@ class ProjectsService {
     projectId: string,
     images: any
   ): Promise<any> {
-    // Уменьшаем лог‑спам, чтобы не замедлять обработку
-    
     if (!images || Object.keys(images).length === 0) {
       return {};
     }
 
-    const imageUrls: any = {};
-    
-    for (const [imageId, base64Data] of Object.entries(images)) {
-      if (typeof base64Data === 'string') {
-        // Проверяем, не является ли это уже URL (начинается с http)
-        if (base64Data.startsWith('http')) {
-          imageUrls[imageId] = base64Data;
-          continue;
-        }
-        
-        try {
-          // Загружаем base64 в Storage
-          const result = await storageService.uploadBase64Image(
-            projectId,
-            base64Data,
-            imageId
-          );
-          
-          if (result.url) {
-            imageUrls[imageId] = result.url;
-          } else {
-            // Сохраняем base64 как fallback
-            imageUrls[imageId] = base64Data;
-          }
-        } catch (error) {
-          imageUrls[imageId] = base64Data;
-        }
-      } else {
-        // Нестринг пропускаем тихо
+    // Параллельная загрузка изображений для ускорения массового импорта
+    const entries = Object.entries(images) as Array<[string, any]>;
+    const results = await Promise.all(entries.map(async ([imageId, base64Data]) => {
+      if (typeof base64Data !== 'string') return [imageId, undefined] as const;
+      // Уже URL — возвращаем как есть
+      if (base64Data.startsWith('http')) return [imageId, base64Data] as const;
+      try {
+        const result = await storageService.uploadBase64Image(projectId, base64Data, imageId);
+        if (result.url) return [imageId, result.url] as const;
+        return [imageId, base64Data] as const;
+      } catch {
+        return [imageId, base64Data] as const;
       }
-    }
-    
-    return imageUrls;
+    }));
+    return Object.fromEntries(results.filter(([, v]) => typeof v === 'string'));
   }
 
   /**

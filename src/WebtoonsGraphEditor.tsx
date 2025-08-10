@@ -1514,6 +1514,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     }
   };
 
+  const ongoingUploadsRef = React.useRef(0);
+
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
@@ -1539,8 +1541,34 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           src: (e?.target as any)?.result,
           originalName: file.name
         };
+        // 1) Сразу показываем превью
         setImages(prev => ({ ...prev, [imageId]: newImage }));
-        setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
+
+        // 2) Мгновенно сохраняем в Storage/БД, чтобы не потерять даже если пользователь не разместит на граф
+        const projectId = initialProject?.id;
+        if (!projectId) {
+          // Если по какой-то причине нет projectId, просто снимаем из очереди
+          setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
+          return;
+        }
+        ongoingUploadsRef.current += 1;
+        (async () => {
+          try {
+            const { url } = await storageService.uploadProjectImage(projectId, file, imageId);
+            if (url) {
+              // Заменяем base64 на URL (экономим память и ускоряем последующие сохранения)
+              setImages(prev => ({
+                ...prev,
+                [imageId]: { ...prev[imageId], src: url }
+              }));
+            }
+          } catch (err) {
+            console.error('uploadProjectImage error:', err);
+          } finally {
+            setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
+            ongoingUploadsRef.current = Math.max(0, ongoingUploadsRef.current - 1);
+          }
+        })();
       };
       reader.onerror = () => {
         setUploadQueue(prev => prev.filter(it => it.id !== tmpId));
@@ -2554,7 +2582,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                   onClick={async () => {
                     if (!isReadOnly && !suppressSave) {
                       onSaveProject({ nodes, edges, images, title: projectTitle, description: projectDescription, thumbnail: projectThumbnail });
-                      await new Promise(r => setTimeout(r, 50));
+                      // увеличим небольшую паузу, чтобы дождаться постановки задачи сохранения
+                      await new Promise(r => setTimeout(r, 150));
                     }
                     onBackToGallery();
                   }}
