@@ -2448,7 +2448,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         )}
 
         <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh`, overflow: 'hidden' } : { height: undefined }}>
+          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh`, overflow: 'hidden', paddingBottom: '0.75rem' } : { height: undefined }}>
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold hidden lg:block">{t.editor.graph.title}</h2>
               <div className="flex items-center gap-2">
@@ -2644,18 +2644,6 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </div>
               </div>
 
-              {/* Разделитель для mobile: drag up/down (между графом и предпросмотром) */}
-              {isCoarse && (
-                <div
-                  role="separator"
-                  aria-orientation="horizontal"
-                  className="h-4 -mx-4 cursor-row-resize flex items-center justify-center"
-                  onMouseDown={(e) => { isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
-                  onTouchStart={(e) => { const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
-                >
-                  <div className="w-14 h-1.5 rounded bg-gray-300" />
-                </div>
-              )}
             </div>
             
             <div className="mt-2 text-xs text-gray-500 flex justify-between">
@@ -2695,7 +2683,18 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           </div>
           
           {/* Панель предпросмотра выделенной ноды */}
-          <div className="bg-white rounded-lg shadow-sm p-4 border" style={isCoarse ? { height: `${Math.max(30, Math.min(85, Math.round((1 - mobileSplitRatio) * 100)))}vh` } : undefined}>
+          <div className="bg-white rounded-lg shadow-sm p-4 border" style={isCoarse ? { height: `${Math.max(30, Math.min(85, Math.round((1 - mobileSplitRatio) * 100)))}vh`, position: 'relative' } : undefined}>
+            {isCoarse && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                className="absolute -top-2 left-0 right-0 h-4 cursor-row-resize flex items-center justify-center"
+                onMouseDown={(e) => { isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
+                onTouchStart={(e) => { const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
+              >
+                <div className="w-14 h-1.5 rounded bg-gray-300" />
+              </div>
+            )}
             <h3 className="text-lg font-semibold mb-3 text-gray-800">
               {selectedNodeId ? t.editor.preview.title : t.editor.preview.selectNode}
             </h3>
