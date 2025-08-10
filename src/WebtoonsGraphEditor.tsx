@@ -83,31 +83,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.body.style.userSelect = 'none';
   };
 
-  // Touch-старт перетаскивания ноды (мобильные устройства)
-  const handleTouchStartNode = (e) => {
-    if (panActive) return;
-    if (isDragging) return;
-    const touch = e.touches && e.touches[0];
-    if (!touch) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    dragInfo.current = {
-      startX: touch.pageX,
-      startY: touch.pageY,
-      nodeStartX: node.position.x,
-      nodeStartY: node.position.y
-    };
-
-    setIsDragging(true);
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
-    document.body.classList.add('dragging');
-  };
-
-  // Удалённая ранее попытка обработчика для нод попала в хотспоты по ошибке.
-  // Здесь не должно быть обработчиков нод. Этот блок удалён.
+  // (Здесь не должно быть обработчиков нод)
 
   React.useEffect(() => {
     if (!isDragging) return;
@@ -569,6 +545,29 @@ const NodeComponent = ({
     document.body.style.WebkitUserSelect = 'none';
     document.body.style.MozUserSelect = 'none';
     document.body.style.msUserSelect = 'none';
+    document.body.classList.add('dragging');
+  };
+
+  // Touch-старт перетаскивания ноды (мобильные устройства)
+  const handleTouchStartNode = (e) => {
+    if (panActive) return;
+    if (isDragging) return;
+    const touch = e.touches && e.touches[0];
+    if (!touch) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    dragInfo.current = {
+      startX: touch.pageX,
+      startY: touch.pageY,
+      nodeStartX: node.position.x,
+      nodeStartY: node.position.y
+    };
+
+    setIsDragging(true);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
     document.body.classList.add('dragging');
   };
 
