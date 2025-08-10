@@ -46,6 +46,8 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Context-aware Positioning**: New nodes appear near selected context
 - **Auto-save**: Automatic project saving with debounced queue (~1.5s)
 - **Undo / Redo**: Up to 30 steps (Ctrl+Z / Ctrl+Shift+Z; works with any keyboard layout)
+- **Fit/Reset View (Desktop & Mobile)**: One-tap toggle to fit the entire graph into view; second tap resets to 100% zoom and centers on the selected node (or START)
+- **Desktop Image Gallery Modal**: Quick image picker with large grid and upload button
 
 ### 📱 Mobile-Optimized Design
 - **Vertical Layout**: Optimized for mobile webtoon consumption
@@ -53,6 +55,8 @@ The Webtoon Gallery & Graph Editor is a modern web application that combines a u
 - **Touch-friendly Controls**: Intuitive interaction patterns
 - **Dual Mode System**: Constructor mode for editing, viewer mode for testing interactive stories
 - **Production Ready**: Deployed on Vercel with global CDN
+- **Split View**: Graph (top) + Preview (bottom) with draggable divider; ratio persists between sessions
+- **Bottom-sheet Image Gallery**: Opens from toolbar, with big “+” upload button
 
 ## 🚀 Getting Started
 
@@ -132,6 +136,16 @@ Visit the deployed application at: **https://webtoon-delta.vercel.app**
 - **Mouse/Touch**: Drag nodes to reposition them
 - **Zoom**: Hold Ctrl and use the mouse wheel to zoom in/out (cursor-centered)
 - **Pan**: Drag empty space to navigate the canvas
+- **Right-click/Space Pan (Desktop)**: Pan with RMB or hold Space and drag; Space is ignored while typing in inputs
+- **Touch**: 1 finger = drag node, 2 fingers = pan/zoom canvas
+
+### Performance
+- **Hotspots**: Drag/resize runs with requestAnimationFrame and direct DOM updates for smooth 60fps interactions on mobile/desktop
+
+### Thumbnails (Project Preview)
+- **Upload**: Thumbnails are uploaded to Supabase Storage (project-images bucket) and saved to `projects.thumbnail_url`
+- **Caching**: Versioned public URL (`?v=timestamp`) ensures gallery updates immediately
+- **Constraints**: Client compresses thumbnails to keep size small; if your Supabase bucket has strict limits, the app will still upload to `project-images` and update the project
 
 ### Node Types
 - **START**: Entry point (green circle)
@@ -304,6 +318,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - ✅ Ctrl+wheel zoom with persistence
 - ✅ Undo/Redo stack in editor
 - ✅ Read-only sandbox for non-authors
+ - ✅ Mobile split view with draggable divider; desktop modal gallery
+ - ✅ Fit/Reset view button on desktop and mobile
+ - ✅ Open editor by clicking preview image on project card
+ - ✅ Thumbnail upload pipeline hardened (versioned URLs, storage fallback)
 
 ---
 
