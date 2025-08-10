@@ -2,6 +2,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Image as ImageIcon } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
+import { getLocalizedGenreName } from './utils/genreTranslations';
 import { storageService } from './services/storage.service';
 import { projectsService } from './services/projects.service';
 
@@ -773,7 +774,7 @@ interface WebtoonsGraphEditorProps {
 }
 
 const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppressSave = false, initialMode = 'constructor', onSaveProject, onBackToGallery }: WebtoonsGraphEditorProps) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage() as any;
   const [mode, setMode] = useState(initialMode);
   const [images, setImages] = useState(() => {
     // Сначала пробуем получить изображения из отдельного объекта images
@@ -1237,7 +1238,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     if (!graphScrollRef.current) return;
     const isRightButton = e.button === 2;
     const panActivated = panMode || isSpaceDown || isRightButton;
-    if (!panActivated) return;
+    if (!panActivated) return; // если не панорамируем — не перехватываем; ноды обрабатывают drag сами
     e.preventDefault();
     e.stopPropagation();
     const container = graphScrollRef.current;
@@ -2194,7 +2195,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           >
             <option value="">Жанр не выбран</option>
             {genres.map(g => (
-              <option key={g.id} value={g.id}>{g.icon ? g.icon + ' ' : ''}{g.name}</option>
+              <option key={g.id} value={g.id}>{g.icon ? g.icon + ' ' : ''}{getLocalizedGenreName(g.slug || g.name, language)}</option>
             ))}
           </select>
             {!isCoarse && (
