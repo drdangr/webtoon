@@ -502,7 +502,10 @@ const NodeComponent = ({
   onDeleteNode,
   onUpdatePosition,
   scale,
-  panActive
+  panActive,
+  selectedCount,
+  onBeginGroupDrag,
+  groupDragActive
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const dragInfo = useRef(null);
@@ -513,6 +516,20 @@ const NodeComponent = ({
     if (e.button !== 0) return;
     // Во время панорамирования не перехватываем события — пусть дойдут до канвы
     if (panActive) return;
+    // Модификаторы: Ctrl/Shift — прокидываем наверх (Ctrl используется для разрыва связей)
+    if (e.ctrlKey || e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      onNodeClick(node.id, e.shiftKey, e.ctrlKey);
+      return;
+    }
+    // Если выбрано несколько нод и текущая нода входит в выделение — стартуем group-drag
+    if (isSelected && selectedCount > 1 && typeof onBeginGroupDrag === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+      onBeginGroupDrag(e.pageX, e.pageY);
+      return;
+    }
     
     // Проверяем, не идёт ли уже перетаскивание
     if (isDragging) return;
@@ -521,12 +538,7 @@ const NodeComponent = ({
     e.preventDefault();
     e.stopPropagation();
     
-    if (e.shiftKey || e.ctrlKey) {
-      onNodeClick(node.id, e.shiftKey, e.ctrlKey);
-      return;
-    }
-    
-    // При обычном клике тоже выделяем ноду
+    // Если выделено >1 нод — запускаем групповой drag
     onNodeClick(node.id, false, false);
     
     // Сохраняем начальные позиции
@@ -696,7 +708,7 @@ const NodeComponent = ({
         onTouchStart={handleTouchStartNode}
         className={`w-16 h-16 bg-green-500 rounded-full flex items-center justify-center text-white font-bold border-4 ${
           isSelected ? 'border-blue-400 ring-4 ring-blue-200' : 'border-green-600'
-        } shadow-lg ${isDragging ? 'opacity-75 node-dragging' : 'transition-all'}`}
+        } shadow-lg ${isDragging || groupDragActive ? 'opacity-75 node-dragging' : 'transition-all'}`}
         title="Стартовая нода - начало истории"
       >
         <div className="text-xs pointer-events-none">START</div>
@@ -719,7 +731,7 @@ const NodeComponent = ({
             : canBeDetached 
               ? 'border-orange-300 hover:border-orange-400' 
               : 'border-gray-300'
-        } bg-white rounded-lg p-2 shadow-lg ${isDragging ? 'opacity-75 node-dragging' : 'transition-all'}`}
+        } bg-white rounded-lg p-2 shadow-lg ${isDragging || groupDragActive ? 'opacity-75 node-dragging' : 'transition-all'}`}
         title={canBeDetached ? 'Ctrl+клик чтобы отрезать от родителей' : 'Картинка комикса'}
       >
         <img 
@@ -786,7 +798,7 @@ const NodeComponent = ({
             : canBeDetached 
               ? 'border-orange-300 hover:border-orange-400' 
               : 'border-orange-300'
-        } bg-orange-100 rounded-lg p-3 min-w-32 max-w-40 shadow-lg ${isDragging ? 'opacity-75 node-dragging' : 'transition-all'}`}
+        } bg-orange-100 rounded-lg p-3 min-w-32 max-w-40 shadow-lg ${isDragging || groupDragActive ? 'opacity-75 node-dragging' : 'transition-all'}`}
         title={canBeDetached ? 'Ctrl+клик чтобы отрезать от родителей' : 'Точка выбора для зрителя'}
       >
         {canBeDetached && (
@@ -909,6 +921,29 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     return [];
   });
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [isSelectingRect, setIsSelectingRect] = useState(false);
+  const selectionStartRef = useRef<{xw:number;yw:number;xpx:number;ypx:number}|null>(null);
+  // Отладка кликов по слоям
+  const debugRectSelect = true;
+  const logClick = (where: string, e: any) => {
+    if (!debugRectSelect) return;
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[rect-select]', where, {
+        targetTag: e?.target?.tagName,
+        targetClass: e?.target?.className,
+        currentTag: e?.currentTarget?.tagName,
+        hasPointer: (e?.target as any)?.style?.pointerEvents || 'n/a'
+      });
+    } catch {}
+  };
+  const [selectionRect, setSelectionRect] = useState<{x:number;y:number;width:number;height:number}|null>(null); // world coords (для хит-теста)
+  const [selectionRectPx, setSelectionRectPx] = useState<{x:number;y:number;width:number;height:number}|null>(null); // пиксели (для отрисовки)
+  const [isGroupDragging, setIsGroupDragging] = useState(false);
+  const groupDragInfoRef = useRef<{startX:number;startY:number;initial:Record<string,{x:number;y:number}>}|null>(null);
+  const groupDragRafRef = useRef<number | null>(null);
+  const groupDragLastDeltaRef = useRef<{dx:number;dy:number}>({ dx: 0, dy: 0 });
   const [lastAddedNodeId, setLastAddedNodeId] = useState(null);
   const [choiceHistory, setChoiceHistory] = useState([]);
   const [viewerPath, setViewerPath] = useState([]);
@@ -1238,6 +1273,30 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     metaDirtyRef.current = true;
     scheduleSaveMeta();
   }, [scheduleSaveMeta]);
+
+  // При размонтировании компонента: если есть несохранённые изменения — сохраняем немедленно
+  React.useEffect(() => {
+    return () => {
+      if (suppressSave || isReadOnly) return;
+      try {
+        if (contentDirtyRef.current) {
+          onSaveProject({ nodes: nodesRef.current, edges: edgesRef.current, images: imagesRef.current });
+          contentDirtyRef.current = false;
+        }
+        if (metaDirtyRef.current) {
+          onSaveProject({
+            title: titleRef.current,
+            description: descriptionRef.current,
+            thumbnail: thumbnailRef.current,
+            genre_id: genreIdRef.current,
+            isPublic: publishRef.current === 'public',
+            onlyMeta: true
+          });
+          metaDirtyRef.current = false;
+        }
+      } catch {}
+    };
+  }, [suppressSave, isReadOnly, onSaveProject]);
 
   // Автосохранение контента (без статусов публикации)
   React.useEffect(() => {
@@ -1730,6 +1789,121 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
 
   const ongoingUploadsRef = React.useRef(0);
 
+  // Начать рамочное выделение
+  const beginRectSelection = (clientX: number, clientY: number) => {
+    if (!graphScrollRef.current) return;
+    const rect = graphScrollRef.current.getBoundingClientRect();
+    const offsetX = clientX - rect.left;
+    const offsetY = clientY - rect.top;
+    const worldX = ((graphScrollRef.current.scrollLeft) + offsetX) / (zoom || 1);
+    const worldY = ((graphScrollRef.current.scrollTop) + offsetY) / (zoom || 1);
+    selectionStartRef.current = { xw: worldX, yw: worldY, xpx: offsetX, ypx: offsetY } as any;
+    setSelectionRect({ x: worldX, y: worldY, width: 0, height: 0 });
+    setSelectionRectPx({ x: offsetX, y: offsetY, width: 0, height: 0 });
+    setIsSelectingRect(true);
+  };
+
+  // Обновление рамки
+  React.useEffect(() => {
+    if (!isSelectingRect) return;
+    const handleMove = (e: MouseEvent) => {
+      if (!selectionStartRef.current || !graphScrollRef.current) return;
+      const rect = graphScrollRef.current.getBoundingClientRect();
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+      const worldX = ((graphScrollRef.current.scrollLeft) + offsetX) / (zoom || 1);
+      const worldY = ((graphScrollRef.current.scrollTop) + offsetY) / (zoom || 1);
+      const x1 = selectionStartRef.current.xw as any;
+      const y1 = selectionStartRef.current.yw as any;
+      const x = Math.min(x1, worldX);
+      const y = Math.min(y1, worldY);
+      const width = Math.abs(worldX - x1);
+      const height = Math.abs(worldY - y1);
+      setSelectionRect({ x, y, width, height });
+      // пиксельная рамка
+      const px1 = selectionStartRef.current.xpx as any;
+      const py1 = selectionStartRef.current.ypx as any;
+      const px = Math.min(px1, offsetX);
+      const py = Math.min(py1, offsetY);
+      const pw = Math.abs(offsetX - px1);
+      const ph = Math.abs(offsetY - py1);
+      setSelectionRectPx({ x: px, y: py, width: pw, height: ph });
+    };
+    const handleUp = () => {
+      if (!selectionStartRef.current) { setIsSelectingRect(false); return; }
+      const sel = selectionRect;
+      setIsSelectingRect(false);
+      selectionStartRef.current = null;
+      if (!sel || sel.width < 3 && sel.height < 3) { setSelectionRect(null); return; }
+      // Вычисляем попадание нод
+      const next = new Set<string>();
+      Object.values(nodes).forEach((n: any) => {
+        const nx = n.position.x;
+        const ny = n.position.y;
+        const w = 100; // примерная ширина карточки
+        const h = 120; // примерная высота карточки
+        if (nx + w >= sel.x && nx <= sel.x + sel.width && ny + h >= sel.y && ny <= sel.y + sel.height) {
+          next.add(n.id);
+        }
+      });
+      setSelectedNodeIds(next);
+      setSelectedNodeId(next.size === 1 ? Array.from(next)[0] : null);
+      setSelectionRect(null);
+      setSelectionRectPx(null);
+    };
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleUp, { once: true });
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleUp as any);
+    };
+  }, [isSelectingRect, selectionRect, nodes, zoom]);
+
+  // Групповое перетаскивание
+  const onBeginGroupDrag = (pageX: number, pageY: number) => {
+    if (selectedNodeIds.size === 0) return false;
+    const initial: Record<string, {x:number;y:number}> = {};
+    selectedNodeIds.forEach(id => { const n = (nodes as any)[id]; if (n) initial[id] = { x: n.position.x, y: n.position.y }; });
+    groupDragInfoRef.current = { startX: pageX, startY: pageY, initial };
+    setIsGroupDragging(true);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    return true;
+  };
+
+  // Удаляем временные глобальные функции для NodeComponent
+
+  React.useEffect(() => {
+    if (!isGroupDragging) return;
+    const handleMove = (e: MouseEvent) => {
+      const info = groupDragInfoRef.current; if (!info) return;
+      const dx = (e.pageX - info.startX) / (zoom || 1);
+      const dy = (e.pageY - info.startY) / (zoom || 1);
+      setNodes(prev => {
+        const next = { ...prev } as any;
+        Object.entries(info.initial).forEach(([id, pos]: any) => {
+          const n = next[id]; if (!n) return;
+          next[id] = { ...n, position: { x: Math.max(10, Math.min(1900, pos.x + dx)), y: Math.max(10, Math.min(1400, pos.y + dy)) } };
+        });
+        return next;
+      });
+    };
+    const end = () => {
+      setIsGroupDragging(false);
+      groupDragInfoRef.current = null;
+      if (groupDragRafRef.current) { cancelAnimationFrame(groupDragRafRef.current); groupDragRafRef.current = null; }
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      markContentDirtyAndSchedule();
+    };
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', end, { once: true });
+    return () => {
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', end as any);
+    };
+  }, [isGroupDragging, zoom, markContentDirtyAndSchedule]);
+
   const handleImageUpload = (event) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
@@ -1928,6 +2102,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       position,
       data: { 
         imageId,
+        backgroundImage: imageId,
         caption: images[imageId]?.name || t.editor.graph.noImage
       }
     };
@@ -2087,8 +2262,11 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       return;
     }
     
+    // Управление множественным выбором
     if (!linkingActive) {
+      // Одиночный выбор
       setSelectedNodeId(nodeId);
+      setSelectedNodeIds(new Set([nodeId]));
       return;
     }
     
@@ -2109,6 +2287,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       }
       
       setSelectedNodeId(nodeId);
+      setSelectedNodeIds(new Set([nodeId]));
     }
   };
 
@@ -2910,7 +3089,111 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
               >
-              <div className="relative" style={{ width: '2000px', height: '1500px', transformOrigin: '0 0', transform: `scale(${zoom})` }}>
+              <div
+                className="relative"
+                style={{ width: '2000px', height: '1500px', transformOrigin: '0 0', transform: `scale(${zoom})` }}
+                onMouseDownCapture={(e) => {
+                  try { console.log('[rect-select] capture', { tag: (e.target as any)?.tagName, class: (e.target as any)?.className }); } catch {}
+                }}
+                onMouseDown={(e) => {
+                  if (e.button !== 0) return;
+                  if (panMode || isSpaceDown) return;
+                  const cls = (e.target as any)?.className || '';
+                  const isNode = typeof cls === 'string' && (cls.includes('node-dragging') || cls.includes('ring-') || cls.includes('border-'));
+                  if (!isNode) {
+                    try { console.log('[rect-select] start from canvas'); } catch {}
+                    e.preventDefault();
+                    setSelectedNodeId(null);
+                    setSelectedNodeIds(new Set());
+                    beginRectSelection(e.clientX, e.clientY);
+                    return;
+                  }
+                }}
+                onMouseMove={(e) => {
+                  if (!isSelectingRect || !graphScrollRef.current) return;
+                  const rect = graphScrollRef.current.getBoundingClientRect();
+                  const offsetX = e.clientX - rect.left;
+                  const offsetY = e.clientY - rect.top;
+                  const worldX = ((graphScrollRef.current.scrollLeft) + offsetX) / (zoom || 1);
+                  const worldY = ((graphScrollRef.current.scrollTop) + offsetY) / (zoom || 1);
+                  const s = selectionStartRef.current; if (!s) return;
+                  const x = Math.min(s.xw, worldX);
+                  const y = Math.min(s.yw, worldY);
+                  const width = Math.abs(worldX - s.xw);
+                  const height = Math.abs(worldY - s.yw);
+                  setSelectionRect({ x, y, width, height });
+                }}
+                onMouseUp={() => {
+                  if (!isSelectingRect) return;
+                  setIsSelectingRect(false);
+                  if (!selectionRect || (selectionRect.width < 3 && selectionRect.height < 3)) { setSelectionRect(null); return; }
+                  const sel = selectionRect;
+                  const next = new Set<string>();
+                  Object.values(nodes).forEach((n: any) => {
+                    const nx = n.position.x; const ny = n.position.y;
+                    const w = 100; const h = 120;
+                    if (nx + w >= sel.x && nx <= sel.x + sel.width && ny + h >= sel.y && ny <= sel.y + sel.height) next.add(n.id);
+                  });
+                  setSelectedNodeIds(next);
+                  setSelectedNodeId(next.size === 1 ? Array.from(next)[0] : null);
+                  setSelectionRect(null);
+                }}
+                onDragOver={(e) => {
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                  e.preventDefault();
+                }}
+                onDrop={async (e) => {
+                  try {
+                    e.preventDefault();
+                    const files = Array.from(e.dataTransfer?.files || []).filter((f: any) => f.type && f.type.startsWith('image/')) as File[];
+                    if (files.length === 0) return;
+
+                    const container = graphScrollRef.current as HTMLDivElement | null;
+                    const rect = container?.getBoundingClientRect();
+                    const offsetX = rect ? e.clientX - rect.left : 0;
+                    const offsetY = rect ? e.clientY - rect.top : 0;
+                    const worldX = ((container?.scrollLeft || 0) + offsetX) / (zoom || 1);
+                    const worldY = ((container?.scrollTop || 0) + offsetY) / (zoom || 1);
+
+                    const cols = Math.max(1, Math.floor(Math.sqrt(files.length)));
+                    const gapX = 180;
+                    const gapY = 180;
+                    let row = 0, col = 0;
+
+                    for (const file of files) {
+                      const tmpId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                      const dataUrl: string = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(String(reader.result));
+                        reader.onerror = () => reject(new Error('read error'));
+                        reader.readAsDataURL(file);
+                      });
+
+                      setImages(prev => ({
+                        ...prev,
+                        [tmpId]: { id: tmpId, name: file.name.replace(/\.[^/.]+$/, ''), src: dataUrl, originalName: file.name }
+                      }));
+
+                      const px = worldX + (col - Math.floor(cols / 2)) * gapX;
+                      const py = worldY + row * gapY;
+                      const pos = findFreePosition('image', { x: px, y: py }) || { x: px, y: py };
+
+                      const nodeId = `node_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+                      setNodes(prev => ({
+                        ...prev,
+                        [nodeId]: { id: nodeId, type: 'image', position: pos, data: { imageId: tmpId, backgroundImage: tmpId, caption: file.name.replace(/\.[^/.]+$/, '') } }
+                      }));
+
+                      col++;
+                      if (col >= cols) { col = 0; row++; }
+                    }
+
+                    markContentDirtyAndSchedule();
+                  } catch (err) {
+                    console.error('drop error', err);
+                  }
+                }}
+              >
                 
                 {/* Сетка фона */}
                 <div 
@@ -2920,7 +3203,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                       linear-gradient(to right, #ddd 1px, transparent 1px),
                       linear-gradient(to bottom, #ddd 1px, transparent 1px)
                     `,
-                    backgroundSize: '100px 100px'
+                    backgroundSize: '100px 100px',
+                    pointerEvents: 'auto'
+                  }}
+                  onMouseDown={(e) => {
+                    if (e.button !== 0) return;
+                    if (panMode || isSpaceDown) return;
+                    logClick('grid.mousedown', e);
+                    e.preventDefault();
+                    setSelectedNodeId(null);
+                    setSelectedNodeIds(new Set());
+                    beginRectSelection(e.clientX, e.clientY);
+                  }}
+                  onMouseUp={() => {
+                    if (panMode || isSpaceDown) return;
+                    setSelectedNodeId(null);
+                    setSelectedNodeIds(new Set());
                   }}
                 />
                 
@@ -2928,41 +3226,71 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 <div 
                   className="absolute inset-0"
                   style={{ zIndex: 0 }}
-                  onClick={() => setSelectedNodeId(null)}
+                  onMouseDown={(e) => {
+                    // ЛКМ по пустому фону снимает выделение (если не панорамируем)
+                    if (e.button !== 0) return;
+                    if (panMode || isSpaceDown) return;
+                    setSelectedNodeId(null);
+                    setSelectedNodeIds(new Set());
+                  }}
                 />
                 
                 <svg 
-                  className="absolute inset-0 w-full h-full pointer-events-none"
-                  style={{ zIndex: 1 }}
+                  className="absolute inset-0 w-full h-full"
+                  style={{ zIndex: 3, pointerEvents: 'none' }}
                    width={2000}
                    height={1500}
                 >
+                  {selectionRect && (
+                    <rect
+                      x={selectionRect.x}
+                      y={selectionRect.y}
+                      width={selectionRect.width}
+                      height={selectionRect.height}
+                      fill="rgba(59,130,246,0.1)"
+                      stroke="#3B82F6"
+                      strokeWidth={1}
+                    />
+                  )}
                   {edges.map(edge => {
                     const fromNode = nodes[edge.from];
                     const toNode = nodes[edge.to];
                     if (!fromNode || !toNode) return null;
-                    
-                    const fromX = fromNode.position.x + 50;
-                    const fromY = fromNode.position.y + 50;
-                    const toX = toNode.position.x + 50;
-                    const toY = toNode.position.y + 50;
-                    
-                    const dx = toX - fromX;
-                    const dy = toY - fromY;
-                    const length = Math.sqrt(dx * dx + dy * dy);
-                    
-                    if (length === 0) return null;
-                    
-                    const unitX = dx / length;
-                    const unitY = dy / length;
-                    
-                    const fromOffset = fromNode.type === 'start' ? 35 : 45;
-                    const toOffset = 45;
-                    
-                    const startX = fromX + unitX * fromOffset;
-                    const startY = fromY + unitY * fromOffset;
-                    const endX = toX - unitX * toOffset;
-                    const endY = toY - unitY * toOffset;
+                    // Вспомогательная функция: якорь на границе узла ближе к целевой точке
+                    const getAnchor = (node: any, targetX: number, targetY: number) => {
+                      if (node.type === 'start') {
+                        const cx = node.position.x + 32; // приблизительный радиус 32
+                        const cy = node.position.y + 32;
+                        const dx = targetX - cx;
+                        const dy = targetY - cy;
+                        const len = Math.max(1, Math.hypot(dx, dy));
+                        const r = 32;
+                        return { x: cx + (dx / len) * r, y: cy + (dy / len) * r };
+                      }
+                      // Прямоугольные ноды
+                      const size = node.type === 'image' ? { w: 100, h: 120 } : { w: 140, h: 100 };
+                      const cx = node.position.x + size.w / 2;
+                      const cy = node.position.y + size.h / 2;
+                      const dx = targetX - cx;
+                      const dy = targetY - cy;
+                      if (dx === 0 && dy === 0) return { x: cx, y: cy };
+                      const sx = (size.w / 2) / Math.abs(dx || 1e-6);
+                      const sy = (size.h / 2) / Math.abs(dy || 1e-6);
+                      const t = Math.min(sx, sy);
+                      return { x: cx + dx * t, y: cy + dy * t };
+                    };
+
+                    const fromCenterX = fromNode.position.x + 50;
+                    const fromCenterY = fromNode.position.y + 50;
+                    const toCenterX = toNode.position.x + 50;
+                    const toCenterY = toNode.position.y + 50;
+
+                    const start = getAnchor(fromNode, toCenterX, toCenterY);
+                    const end = getAnchor(toNode, fromCenterX, fromCenterY);
+                    const startX = start.x;
+                    const startY = start.y;
+                    const endX = end.x;
+                    const endY = end.y;
                     
                     const strokeColor = fromNode.type === 'choice' ? '#F59E0B' : '#3B82F6';
                     const strokeWidth = fromNode.type === 'choice' ? 3 : 2;
@@ -3014,7 +3342,19 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                   </defs>
                 </svg>
 
-                <div className="relative w-full h-full" style={{ zIndex: 2 }}>
+                <div
+                  className="relative w-full h-full"
+                  style={{ zIndex: 2 }}
+                  onMouseDown={(e) => {
+                    // Клик по контейнеру нод (между карточками) — снимаем выделение
+                    if (e.button !== 0) return;
+                    if (panMode || isSpaceDown) return;
+                    if (e.currentTarget === e.target) {
+                      setSelectedNodeId(null);
+                      setSelectedNodeIds(new Set());
+                    }
+                  }}
+                >
                   {Object.values(nodes).map(node => {
                     const connections = getNodeConnections(node.id);
                     const hasIncoming = connections.incoming.length > 0;
@@ -3024,7 +3364,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                       <NodeComponent
                         key={node.id}
                         node={node}
-                        isSelected={selectedNodeId === node.id}
+                        isSelected={selectedNodeId === node.id || selectedNodeIds.has(node.id)}
                         hasIncomingConnections={hasIncoming}
                         canBeDetached={canBeDetached}
                         images={images}
@@ -3034,6 +3374,9 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                         onUpdatePosition={updateNodePosition}
                         scale={zoom}
                         panActive={panMode || isSpaceDown || isPanning}
+                        selectedCount={selectedNodeIds.size}
+                        onBeginGroupDrag={onBeginGroupDrag}
+                        groupDragActive={isGroupDragging}
                       />
                     );
                   })}

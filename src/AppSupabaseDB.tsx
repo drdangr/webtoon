@@ -610,7 +610,7 @@ function AppContent() {
         console.log('📸 Загружено изображений из _images (старый формат):', Object.keys(images).length);
       }
       
-      // Также проверяем imageUrl/imageData в узлах и нормализуем поле imageId
+      // Также проверяем imageUrl/imageData в узлах и нормализуем поля imageId/backgroundImage
       Object.keys(nodes).forEach(nodeId => {
         const node = nodes[nodeId];
         if (node?.data?.backgroundImage) {
@@ -633,10 +633,9 @@ function AppContent() {
             };
             console.log(`📸 Base64 изображение ${imageId} из узла ${nodeId} (старый формат)`);
           }
-          // Нормализация: если нет imageId, подставляем backgroundImage
-          if (!node.data.imageId) {
-            node.data.imageId = imageId;
-          }
+          // Нормализация: если нет imageId, подставляем backgroundImage; и наоборот
+          if (!node.data.imageId) node.data.imageId = imageId;
+          if (!node.data.backgroundImage && node.data.imageId) node.data.backgroundImage = node.data.imageId;
         }
       });
 

@@ -608,7 +608,7 @@ class ProjectsService {
         nodesKeys: Object.keys(nodesWithImages)
       });
       
-      // Сохраняем URL изображений вместо base64
+      // Сохраняем URL изображений вместо base64; а также восстанавливаем фоновые ссылки, если не заданы
       if (imageUrls && Object.keys(imageUrls).length > 0) {
         Object.keys(nodesWithImages).forEach(nodeId => {
           const node = nodesWithImages[nodeId];
@@ -627,6 +627,9 @@ class ProjectsService {
             if (node?.data?.imageData) {
               delete node.data.imageData;
             }
+          } else if (node?.data?.imageId) {
+            // Нормализация: если был только imageId — продублируем в backgroundImage
+            node.data.backgroundImage = node.data.imageId;
           }
         });
         
