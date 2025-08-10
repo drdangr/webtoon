@@ -53,9 +53,7 @@ class ProjectsService {
       if (filters.isPublic !== undefined) {
         query = query.eq('is_public', filters.isPublic);
       }
-      if (filters.isPublished !== undefined) {
-        query = query.eq('is_published', filters.isPublished);
-      }
+      // Убираем зависимость от is_published — используем только is_public как единый флаг публикации
       if (filters.searchQuery) {
         query = query.or(`title.ilike.%${filters.searchQuery}%,description.ilike.%${filters.searchQuery}%`);
       }
@@ -584,7 +582,23 @@ class ProjectsService {
       const imageUrls = await this.uploadImagesToStorage(projectId, imageStrings);
       
       // Создаем копию nodes для модификации
-      const nodesWithImages = JSON.parse(JSON.stringify(nodes));
+      const nodesWithImages = JSON.parse(JSON.stringify(nodes || {}));
+
+      // Защита: не перезаписываем версию «пустыми» данными
+      const meaningfulNodeIds = Object.keys(nodesWithImages).filter(k => k !== '_images' && k !== '_imageUrls');
+      if (meaningfulNodeIds.length === 0) {
+        console.warn('⚠️ Пропускаем сохранение версии: нет узлов для записи (чтобы не обнулить граф)');
+        // Вернём последнюю версию как есть
+        if (lastVersionRow?.id) {
+          const { data } = await supabase
+            .from('project_versions')
+            .select('*')
+            .eq('id', lastVersionRow.id)
+            .single();
+          return data as any;
+        }
+        return null;
+      }
       
       console.log('💾 Сохраняем версию (upsert):', {
         projectId,

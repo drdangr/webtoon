@@ -117,7 +117,7 @@ class StorageService {
       // Добавляем параметр версии, чтобы обходить кэш CDN/браузера
       const versionedUrl = `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
 
-      // Обновляем URL в проекте
+      // Обновляем URL в проекте (только превью, не трогаем версии)
       await supabase
         .from('projects')
         .update({ thumbnail_url: versionedUrl })

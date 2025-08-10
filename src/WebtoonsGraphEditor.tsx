@@ -869,7 +869,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   // Режим публикации: draft (видит только автор) или public (видят все)
   const [publishState, setPublishState] = useState<'draft' | 'public'>(
-    initialProject && (initialProject as any).is_public && (initialProject as any).is_published ? 'public' : 'draft'
+    initialProject && (initialProject as any).is_public ? 'public' : 'draft'
   );
   const initialPublishRef = React.useRef(publishState);
   const firstChangeRef = React.useRef(false);
@@ -1123,12 +1123,164 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     setMode(initialMode);
   }, [initialMode]);
 
+  // Кэш хешей, чтобы сохранять только при реальных изменениях
+  const lastContentHashRef = React.useRef<string>("");
+  const lastMetaHashRef = React.useRef<string>("");
+
+  const createContentHash = React.useCallback(() => {
+    try {
+      // Упрощаем ноды: тип, округлённые позиции, ключевые данные
+      const nodesSlim: any = {};
+      Object.keys(nodes || {}).forEach((id) => {
+        const n = (nodes as any)[id];
+        if (!n) return;
+        const pos = n.position || { x: 0, y: 0 };
+        nodesSlim[id] = {
+          type: n.type,
+          position: { x: Math.round(pos.x), y: Math.round(pos.y) },
+          data: {
+            imageId: n?.data?.imageId || n?.data?.backgroundImage || "",
+            caption: n?.data?.caption || ""
+          }
+        };
+      });
+      // Упрощаем рёбра: только стабильные поля и сортировка по id
+      const edgesSlim = (edges || [])
+        .map((e: any) => ({ id: e.id, from: e.from, to: e.to, type: e.type || "", label: e.label || "" }))
+        .sort((a: any, b: any) => (a.id || "").localeCompare(b.id || ""));
+      const imageIds = Object.keys(images || {}).sort();
+      return JSON.stringify({ nodes: nodesSlim, edges: edgesSlim, images: imageIds });
+    } catch {
+      return `${Date.now()}`;
+    }
+  }, [nodes, edges, images]);
+
+  const createMetaHash = React.useCallback(() => {
+    return JSON.stringify({
+      title: projectTitle || "",
+      description: projectDescription || "",
+      thumbnail: projectThumbnail || "",
+      genreId: genreId || "",
+      publish: publishState
+    });
+  }, [projectTitle, projectDescription, projectThumbnail, genreId, publishState]);
+
+  // Фиксируем пользовательскую активность, чтобы не сохранять бездействуя
+  const lastUserActivityRef = React.useRef<number>(Date.now());
+  React.useEffect(() => {
+    const bump = () => { lastUserActivityRef.current = Date.now(); };
+    const events: Array<[keyof DocumentEventMap, any]> = [
+      ['pointerdown', bump],
+      ['pointerup', bump],
+      ['keydown', bump],
+      ['keyup', bump],
+      ['wheel', bump],
+      ['dragend', bump]
+    ];
+    events.forEach(([e, h]) => document.addEventListener(e, h as any, { passive: true } as any));
+    return () => events.forEach(([e, h]) => document.removeEventListener(e, h as any));
+  }, []);
+
+  // Event-driven saving: debounced schedulers and dirty flags
+  const nodesRef = React.useRef(nodes); React.useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  const edgesRef = React.useRef(edges); React.useEffect(() => { edgesRef.current = edges; }, [edges]);
+  const imagesRef = React.useRef(images); React.useEffect(() => { imagesRef.current = images; }, [images]);
+  const titleRef = React.useRef(projectTitle); React.useEffect(() => { titleRef.current = projectTitle; }, [projectTitle]);
+  const descriptionRef = React.useRef(projectDescription); React.useEffect(() => { descriptionRef.current = projectDescription; }, [projectDescription]);
+  const thumbnailRef = React.useRef(projectThumbnail); React.useEffect(() => { thumbnailRef.current = projectThumbnail; }, [projectThumbnail]);
+  const genreIdRef = React.useRef(genreId); React.useEffect(() => { genreIdRef.current = genreId; }, [genreId]);
+  const publishRef = React.useRef(publishState); React.useEffect(() => { publishRef.current = publishState; }, [publishState]);
+
+  const contentDirtyRef = React.useRef(false);
+  const metaDirtyRef = React.useRef(false);
+
+  const scheduleDebounce = (fn: () => void, delay = 400) => {
+    let timer: any = null;
+    return () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fn, delay);
+    };
+  };
+
+  const saveContentNow = React.useCallback(() => {
+    if (suppressSave || isReadOnly) return;
+    const payload = {
+      nodes: nodesRef.current,
+      edges: edgesRef.current,
+      images: imagesRef.current
+    };
+    onSaveProject(payload);
+    contentDirtyRef.current = false;
+  }, [onSaveProject, suppressSave, isReadOnly]);
+
+  const saveMetaNow = React.useCallback(() => {
+    if (suppressSave || isReadOnly) return;
+    onSaveProject({
+      title: titleRef.current,
+      description: descriptionRef.current,
+      thumbnail: thumbnailRef.current,
+      genre_id: genreIdRef.current,
+      isPublic: publishRef.current === 'public',
+      onlyMeta: true
+    });
+    metaDirtyRef.current = false;
+  }, [onSaveProject, suppressSave, isReadOnly]);
+
+  const scheduleSaveContent = React.useRef(scheduleDebounce(saveContentNow, 800)).current;
+  const scheduleSaveMeta = React.useRef(scheduleDebounce(saveMetaNow, 500)).current;
+
+  const markContentDirtyAndSchedule = React.useCallback(() => {
+    contentDirtyRef.current = true;
+    scheduleSaveContent();
+  }, [scheduleSaveContent]);
+
+  const markMetaDirtyAndSchedule = React.useCallback(() => {
+    metaDirtyRef.current = true;
+    scheduleSaveMeta();
+  }, [scheduleSaveMeta]);
+
   // Автосохранение контента (без статусов публикации)
   React.useEffect(() => {
     if (mode !== 'constructor') return; // в просмотре не сохраняем
     if (suppressSave || isReadOnly) return;
     if (isUploadingThumbnail) return;
-    if (!initialProject && Object.keys(nodes).length === 1 && edges.length === 0) return;
+    // Разрешаем автосейв даже для нового проекта, если менялись метаданные (название/описание/превью/жанр) или есть картинки
+    const isNewProject = !initialProject;
+    const hasGraphContent = Object.keys(nodes).length > 1 || (edges?.length || 0) > 0;
+    const hasImages = images && Object.keys(images).length > 0;
+    const defaultTitle = t.editor.newComic;
+    const defaultDescription = t.editor.comicDescription;
+    const titleChanged = projectTitle && projectTitle !== defaultTitle;
+    const descriptionChanged = (projectDescription || '') !== (defaultDescription || '');
+    const thumbnailSet = !!projectThumbnail;
+    const genreSet = !!genreId;
+    const hasMetaChanges = titleChanged || descriptionChanged || thumbnailSet || genreSet;
+    if (isNewProject && !hasGraphContent && !hasImages && !hasMetaChanges) return;
+
+    // Хеш содержимого (узлы/ребра/состав пула изображений), чтобы не сохранять без изменений
+    const nodesSlim: any = {};
+    Object.keys(nodes || {}).forEach(id => {
+      const n = (nodes as any)[id];
+      if (!n) return;
+      nodesSlim[id] = {
+        type: n.type,
+        position: n.position,
+        data: {
+          imageId: n?.data?.imageId,
+          backgroundImage: n?.data?.backgroundImage,
+          caption: n?.data?.caption || ''
+        }
+      };
+    });
+    const contentHash = createContentHash();
+    // Первичная фиксация состояния без сохранения, чтобы не стартовал цикл
+    if (!lastContentHashRef.current) {
+      lastContentHashRef.current = contentHash;
+      return;
+    }
+    // Если не было активности пользователя последние 3 секунды, не инициируем автосейв
+    if (Date.now() - lastUserActivityRef.current > 3000) return;
+    if (lastContentHashRef.current === contentHash) return;
 
     const timeoutId = setTimeout(() => {
       // если ещё не было изменений, фиксируем факт первого изменения
@@ -1136,33 +1288,95 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       onSaveProject({
         nodes,
         edges,
-        images,
-        title: projectTitle,
-        description: projectDescription,
-        thumbnail: projectThumbnail,
-        genre_id: genreId
+        images
       });
-    }, 1500); // слегка увеличили паузу, чтобы не триггерить частые сохранения при перетаскивании
+      lastContentHashRef.current = contentHash;
+    }, 1000);
 
     return () => clearTimeout(timeoutId);
-  }, [mode, nodes, edges, images, projectTitle, projectDescription, projectThumbnail, genreId, onSaveProject, suppressSave, isReadOnly, isUploadingThumbnail]);
+  }, [mode, nodes, edges, images, projectTitle, projectDescription, projectThumbnail, genreId, onSaveProject, suppressSave, isReadOnly, isUploadingThumbnail, createContentHash]);
 
-  // Лёгкое сохранение статуса публикации (без новой версии)
+  // Сохраняем при сворачивании/переключении вкладки/уходе со страницы (только если есть изменения)
+  React.useEffect(() => {
+    if (suppressSave || isReadOnly) return;
+    const buildHashes = () => {
+      const nodesSlim: any = {};
+      Object.keys(nodes || {}).forEach(id => {
+        const n = (nodes as any)[id];
+        if (!n) return;
+        nodesSlim[id] = {
+          type: n.type,
+          position: n.position,
+          data: {
+            imageId: n?.data?.imageId,
+            backgroundImage: n?.data?.backgroundImage,
+            caption: n?.data?.caption || ''
+          }
+        };
+      });
+      const contentHash = JSON.stringify({ nodes: nodesSlim, edges, images: Object.keys(images || {}).sort() });
+      const metaHash = JSON.stringify({ title: projectTitle || '', description: projectDescription || '', thumbnail: projectThumbnail || '', genreId: genreId || '', publish: publishState });
+      return { contentHash, metaHash };
+    };
+
+    const handler = async () => {
+      const { contentHash, metaHash } = buildHashes();
+      const needContent = contentHash !== lastContentHashRef.current;
+      const needMeta = metaHash !== lastMetaHashRef.current;
+      if (!needContent && !needMeta) return;
+      try {
+        if (needContent) {
+          onSaveProject({ nodes, edges, images });
+          lastContentHashRef.current = contentHash;
+        }
+        if (needMeta) {
+          onSaveProject({
+            title: projectTitle,
+            description: projectDescription,
+            thumbnail: projectThumbnail,
+            genre_id: genreId,
+            isPublic: publishState === 'public',
+            onlyMeta: true
+          });
+          lastMetaHashRef.current = metaHash;
+        }
+        await new Promise(r => setTimeout(r, 100));
+      } catch {}
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) handler();
+    });
+    window.addEventListener('pagehide', handler);
+    return () => {
+      window.removeEventListener('pagehide', handler);
+    };
+  }, [suppressSave, isReadOnly, nodes, edges, images, projectTitle, projectDescription, projectThumbnail, genreId, onSaveProject]);
+
+  // Сохранение статуса публикации обрабатывается в общем эффекте метаданных (см. ниже)
+
+  // Лёгкое сохранение метаданных (title, description, thumbnail, genre) без новой версии
   React.useEffect(() => {
     if (mode !== 'constructor') return;
     if (suppressSave || isReadOnly) return;
     if (!initialProject) return;
-    // сохраняем публичность только после первого изменения
-    if (!firstChangeRef.current) return;
+    const metaHash = createMetaHash();
+    if (!lastMetaHashRef.current) {
+      lastMetaHashRef.current = metaHash;
+      return;
+    }
+    if (lastMetaHashRef.current === metaHash) return;
     const timeoutId = setTimeout(() => {
       onSaveProject({
-        isPublic: publishState === 'public',
-        isPublished: publishState === 'public',
+        title: projectTitle,
+        description: projectDescription,
+        thumbnail: projectThumbnail,
+        genre_id: genreId,
         onlyMeta: true
       });
-    }, 300);
+      lastMetaHashRef.current = metaHash;
+    }, 400);
     return () => clearTimeout(timeoutId);
-  }, [mode, publishState, suppressSave, isReadOnly, initialProject, onSaveProject]);
+  }, [mode, projectTitle, projectDescription, projectThumbnail, genreId, suppressSave, isReadOnly, initialProject, onSaveProject, createMetaHash]);
 
   // Обработчики для редактирования полей проекта
   const handleTitleClick = () => {
@@ -1701,6 +1915,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     });
     
     setNodes(updatedNodes);
+    markContentDirtyAndSchedule();
   };
 
   const createImageNode = (imageId) => {
@@ -1721,6 +1936,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       ...prev,
       [nodeId]: newNode
     }));
+    markContentDirtyAndSchedule();
     
     setLastAddedNodeId(nodeId);
     
@@ -1752,8 +1968,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         }
       };
 
-      return { ...prev, [choiceNodeId]: updatedNode };
+      const next = { ...prev, [choiceNodeId]: updatedNode };
+      return next;
     });
+    markContentDirtyAndSchedule();
   }, []);
 
   // Функция получения сохраненной позиции хотспота
@@ -1803,6 +2021,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
       ...prev,
       [nodeId]: newNode
     }));
+    markContentDirtyAndSchedule();
     
     setLastAddedNodeId(nodeId);
     
@@ -1886,6 +2105,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         };
         
         setEdges(prev => [...prev, newEdge]);
+        markContentDirtyAndSchedule();
       }
       
       setSelectedNodeId(nodeId);
@@ -1903,6 +2123,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         }
       }
     }));
+    markContentDirtyAndSchedule();
   };
 
   const deleteNode = (nodeId) => {
@@ -1915,6 +2136,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     });
     
     setEdges(prev => prev.filter(edge => edge.from !== nodeId && edge.to !== nodeId));
+    markContentDirtyAndSchedule();
     
     // Очищаем состояния если удаляем выделенную или последнюю добавленную ноду
     if (selectedNodeId === nodeId) {
@@ -1933,6 +2155,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         position
       }
     }));
+    markContentDirtyAndSchedule();
   };
 
   const buildViewerPath = (choiceHistory = []) => {
@@ -2349,8 +2572,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <LanguageSwitcher />
-            {/* Публичность/публикация (доступно если не подавлено сохранение) */}
-            {!suppressSave && (
+            {/* Публичность/публикация (только для автора) */}
+            {!isReadOnly && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPublishState('draft')}

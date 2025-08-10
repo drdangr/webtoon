@@ -74,7 +74,6 @@ function Gallery({
         }),
         projectsService.getProjects({
           isPublic: true,
-          isPublished: true,
           genreId: selectedGenre || undefined,
           sortBy
         })
@@ -97,7 +96,7 @@ function Gallery({
 
       // Строгая фильтрация на клиенте: свои или публичные опубликованные
       const visible = projectsWithData.filter((p: any) => (
-        p.user_id === currentUser.id || (p.is_public && p.is_published)
+        p.user_id === currentUser.id || p.is_public
       ));
 
       // Сортируем объединенный список по выбранному полю (на случай смешения наборов)
@@ -153,6 +152,89 @@ function Gallery({
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects.length, currentUser?.id]);
+
+  // Realtime проекты: обновляем метаданные (название, превью, публичность, счётчики)
+  useEffect(() => {
+    if (!currentUser) return;
+    const channel = supabase
+      .channel('realtime-projects-gallery')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'projects' },
+        (payload: any) => {
+          const projectId = (payload.new?.id) || (payload.old?.id);
+          if (!projectId) return;
+          setProjects(prev => {
+            // Для INSERT: проект может стать видимым, если публичный или наш
+            const isOwn = payload.new?.user_id === currentUser.id;
+            const isPublic = !!payload.new?.is_public;
+            let next = [...prev];
+            if (payload.eventType === 'DELETE') {
+              next = next.filter(p => p.id !== projectId);
+            } else if (payload.eventType === 'INSERT') {
+              if (isOwn || isPublic) {
+                const exists = next.some(p => p.id === projectId);
+                if (!exists) next.push(payload.new);
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const idx = next.findIndex(p => p.id === projectId);
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], ...payload.new };
+                // если запись стала приватной и не наша — убрать
+                const nowOwn = payload.new.user_id === currentUser.id;
+                const nowPublic = !!payload.new.is_public;
+                if (!nowOwn && !nowPublic) {
+                  next.splice(idx, 1);
+                }
+              } else {
+                // если стала публичной — добавить
+                const nowOwn = payload.new.user_id === currentUser.id;
+                const nowPublic = !!payload.new.is_public;
+                if (nowOwn || nowPublic) next.push(payload.new);
+              }
+            }
+
+            // Пересортировка и фильтр жанра
+            const sortField = sortBy;
+            const sorted = [...next].sort((a: any, b: any) => (b[sortField] || 0) - (a[sortField] || 0));
+            const filtered = selectedGenre ? sorted.filter(p => p.genre_id === selectedGenre) : sorted;
+            return filtered as any;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'projects' },
+        (payload: any) => {
+          const projectId = payload.new?.id;
+          if (!projectId) return;
+          setProjects(prev => {
+            const isOwn = payload.new?.user_id === currentUser.id;
+            const isPublic = !!payload.new?.is_public;
+            if (!isOwn && !isPublic) return prev;
+            if (prev.some(p => p.id === projectId)) return prev;
+            const next = [...prev, payload.new];
+            const sorted = [...next].sort((a: any, b: any) => (b[sortBy] || 0) - (a[sortBy] || 0));
+            const filtered = selectedGenre ? sorted.filter(p => p.genre_id === selectedGenre) : sorted;
+            return filtered as any;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'projects' },
+        (payload: any) => {
+          const projectId = payload.old?.id;
+          if (!projectId) return;
+          setProjects(prev => prev.filter(p => p.id !== projectId));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id, sortBy, selectedGenre]);
 
   return (
     <div className="min-h-screen bg-[#0b0b0c]">
@@ -697,11 +779,28 @@ function AppContent() {
         updatedProject = await projectsService.updateProject(
           currentProject.id,
           {
+            // метаданные проекта без новой версии
+            title: typeof updatedData.title !== 'undefined' ? updatedData.title : currentProject.title,
+            description: typeof updatedData.description !== 'undefined' ? updatedData.description : currentProject.description,
+            thumbnail_url: typeof updatedData.thumbnail === 'string' ? updatedData.thumbnail : currentProject.thumbnail_url,
             is_public: typeof updatedData.isPublic === 'boolean' ? updatedData.isPublic : currentProject.is_public,
-            is_published: typeof updatedData.isPublished === 'boolean' ? updatedData.isPublished : currentProject.is_published,
             genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
           }
         );
+        // Страховка: если у проекта ещё нет версий, создадим первую версию из текущего состояния
+        try {
+          const existing = await projectsService.getLatestVersion(currentProject.id);
+          if (!existing) {
+            await projectsService.saveProjectVersion(
+              currentProject.id,
+              currentProject.nodes || {},
+              (currentProject.edges as any) || [],
+              currentProject.images || {}
+            );
+          }
+        } catch (e) {
+          console.warn('Не удалось проверить/создать первую версию после мета-обновления:', e);
+        }
       } else {
         // Полное сохранение с версией
         if (typeof updatedData.thumbnail === 'string') {
@@ -733,7 +832,8 @@ function AppContent() {
           console.log('[thumbnail] project updated:', updatedProject.thumbnail_url);
         }
         // После сохранения читаем последнюю версию, чтобы подтянуть URL изображений вместо base64
-        const latest = !updatedData.onlyMeta ? await projectsService.getLatestVersion(currentProject.id) : null;
+        // Если меняли превью (meta-only), не трогаем версии, но освежим локальные nodes из БД, чтобы исключить локальный дрейф
+        const latest = !updatedData.onlyMeta ? await projectsService.getLatestVersion(currentProject.id) : await projectsService.getLatestVersion(currentProject.id);
         let nextImages = updatedData.images || {};
         let nextNodes = updatedData.nodes || {};
         if (latest?.nodes && latest.nodes._imageUrls) {
@@ -767,9 +867,9 @@ function AppContent() {
         setCurrentProject({
           ...currentProject,
           ...updatedProject,
-          nodes: (updatedData.onlyMeta ? currentProject.nodes : nextNodes),
-          edges: (updatedData.onlyMeta ? currentProject.edges : (updatedData.edges || [])),
-          images: (updatedData.onlyMeta ? currentProject.images : nextImages)
+           nodes: (latest?.nodes ? latest.nodes : (updatedData.onlyMeta ? currentProject.nodes : nextNodes)),
+           edges: (latest?.edges ? latest.edges : (updatedData.onlyMeta ? currentProject.edges : (updatedData.edges || []))),
+           images: (updatedData.onlyMeta ? currentProject.images : nextImages)
         });
 
         console.log('✅ Проект успешно сохранен в БД:', updatedProject.id);

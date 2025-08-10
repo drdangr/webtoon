@@ -173,6 +173,17 @@ CREATE POLICY "Users can manage images in own projects"
     )
   );
 
+-- Разрешаем всем видеть изображения публичных проектов
+CREATE POLICY "Public can view images of public projects"
+  ON public.images FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.projects
+      WHERE projects.id = images.project_id
+      AND projects.is_public = true
+    )
+  );
+
 -- Analytics - любой может добавлять
 CREATE POLICY "Anyone can insert analytics" 
   ON public.analytics FOR INSERT 
@@ -199,15 +210,14 @@ CREATE POLICY "Users can manage versions of own projects"
     )
   );
 
--- Позволяем читать версии публичных опубликованных проектов всем
-CREATE POLICY "Public can view versions of published public projects" 
+-- Позволяем читать версии публичных проектов всем
+CREATE POLICY "Public can view versions of public projects" 
   ON public.project_versions FOR SELECT 
   USING (
     EXISTS (
       SELECT 1 FROM public.projects
       WHERE projects.id = project_versions.project_id
       AND projects.is_public = true
-      AND projects.is_published = true
     )
     OR EXISTS (
       SELECT 1 FROM public.projects
