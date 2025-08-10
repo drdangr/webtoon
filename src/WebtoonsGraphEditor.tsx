@@ -862,6 +862,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [projectThumbnail, setProjectThumbnail] = useState(initialProject?.thumbnail || '');
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | ''>('');
+  const [thumbnailBust, setThumbnailBust] = useState<number>(0);
   const [genreId, setGenreId] = useState<string | undefined>((initialProject as any)?.genre_id);
   const [genres, setGenres] = useState<any[]>([]);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -1037,7 +1038,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (mode !== 'constructor') return;
-      if (e.code === 'Space') {
+      // Игнорируем хоткеи, когда пользователь печатает в полях ввода/редактируемых зонах
+      const target = e.target as HTMLElement | null;
+      const isTyping = !!target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        (target as HTMLElement).isContentEditable
+      );
+      if (e.code === 'Space' && !isTyping) {
         // включаем временное панорамирование пробелом
         setIsSpaceDown(true);
         // избегаем прокрутки страницы пробелом
@@ -1188,6 +1196,56 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     event.target.value = '';
     if (!file || !file.type.startsWith('image/')) return;
 
+    // Подготовка превью: ресайз и сжатие, чтобы не превышать лимиты хранения
+    const prepareThumbnail = async (originalFile: File): Promise<File> => {
+      try {
+        const maxDimension = 512; // px — более агрессивно
+        const targetMaxBytes = 120 * 1024; // 120KB — чтобы гарантированно пройти лимиты
+        console.log('[thumbnail] original file size, type:', originalFile.size, originalFile.type);
+        const objectUrl = URL.createObjectURL(originalFile);
+        const img: HTMLImageElement = await new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = objectUrl;
+        });
+        URL.revokeObjectURL(objectUrl);
+
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        let width = Math.max(1, Math.round(img.width * scale));
+        let height = Math.max(1, Math.round(img.height * scale));
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return originalFile;
+
+        let quality = 0.8;
+        let blob: Blob | null = null;
+        // Итеративно уменьшаем качество/размер, пока не уложимся в лимит
+        for (let attempt = 0; attempt < 12; attempt++) {
+          canvas.width = width;
+          canvas.height = height;
+          ctx.clearRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+          if (blob && blob.size <= targetMaxBytes) break;
+          // уменьшить сначала качество, затем габариты
+          if (quality > 0.5) {
+            quality -= 0.1;
+          } else {
+            width = Math.max(64, Math.round(width * 0.75));
+            height = Math.max(64, Math.round(height * 0.75));
+          }
+        }
+        if (!blob) return originalFile;
+        console.log('[thumbnail] optimized size, dims:', blob.size, width, height);
+        return new File([blob], 'thumbnail.jpg', { type: 'image/jpeg' });
+      } catch (e) {
+        console.warn('Thumbnail prepare failed, uploading original file', e);
+        return originalFile;
+      }
+    };
+
     // Локальный превью до загрузки
     const objectUrl = URL.createObjectURL(file);
     setThumbnailPreviewUrl(objectUrl);
@@ -1198,9 +1256,16 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         console.warn('Нет id проекта для загрузки превью');
         return;
       }
-      const res = await storageService.uploadThumbnail(initialProject.id, file);
+      const optimizedFile = await prepareThumbnail(file);
+      const res = await storageService.uploadThumbnail(initialProject.id, optimizedFile);
       if (res.url) {
+        console.log('[thumbnail] uploaded:', res.url);
         setProjectThumbnail(res.url);
+        setThumbnailBust(Date.now()); // обновим ключ для обхода кэша
+        setTimeout(() => {
+          console.log('[thumbnail] saving project with new url');
+          onSaveProject({ thumbnail: res.url });
+        }, 0);
       } else {
         console.error('Не удалось загрузить превью:', res.error);
       }
@@ -2414,7 +2479,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               {(projectThumbnail || thumbnailPreviewUrl) && (
                 <div className="relative">
                   <img 
-                    src={thumbnailPreviewUrl || projectThumbnail} 
+                    src={thumbnailPreviewUrl || (projectThumbnail ? `${projectThumbnail}${projectThumbnail.includes('?') ? '&' : '?'}v=${thumbnailBust}` : '')} 
                     alt="Превью комикса" 
                     className="w-full h-20 object-cover rounded border-2 border-purple-200"
                   />

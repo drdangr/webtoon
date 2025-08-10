@@ -97,35 +97,36 @@ class StorageService {
       const user = await authService.getCurrentUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Генерируем имя файла
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${user.id}/${projectId}.${fileExt}`;
-
-      // Загружаем файл в Storage
+      // Загружаем превью сразу в project-images (лимит выше)
+      const fileExt = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const imagePath = `${user.id}/${projectId}/thumbnail.${fileExt}`;
       const { data, error } = await supabase.storage
-        .from(this.BUCKET_NAMES.THUMBNAILS)
-        .upload(filePath, file, {
+        .from(this.BUCKET_NAMES.PROJECT_IMAGES)
+        .upload(imagePath, file, {
           cacheControl: '3600',
-          upsert: true // Перезаписываем если существует
+          upsert: true,
+          contentType: file.type || 'image/jpeg'
         });
-
       if (error) throw error;
-
-      // Получаем публичный URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(this.BUCKET_NAMES.THUMBNAILS)
+      const { data: urlData } = supabase.storage
+        .from(this.BUCKET_NAMES.PROJECT_IMAGES)
         .getPublicUrl(data.path);
+      const publicUrl = urlData.publicUrl;
+      const uploadedPath = data.path;
+
+      // Добавляем параметр версии, чтобы обходить кэш CDN/браузера
+      const versionedUrl = `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
 
       // Обновляем URL в проекте
       await supabase
         .from('projects')
-        .update({ thumbnail_url: publicUrl })
+        .update({ thumbnail_url: versionedUrl })
         .eq('id', projectId)
         .eq('user_id', user.id);
 
       return {
-        url: publicUrl,
-        path: data.path
+        url: versionedUrl,
+        path: uploadedPath
       };
     } catch (error: any) {
       console.error('UploadThumbnail error:', error);

@@ -683,12 +683,19 @@ function AppContent() {
         );
       } else {
         // Полное сохранение с версией
+        if (typeof updatedData.thumbnail === 'string') {
+          console.log('[thumbnail] update payload:', {
+            thumbnail_url: updatedData.thumbnail
+          });
+        }
         updatedProject = await projectsService.updateProject(
           currentProject.id,
           {
-            title: updatedData.title || currentProject.title,
-            description: updatedData.description || currentProject.description,
-            thumbnail_url: updatedData.thumbnail || currentProject.thumbnail_url,
+            title: typeof updatedData.title !== 'undefined' ? updatedData.title : currentProject.title,
+            description: typeof updatedData.description !== 'undefined' ? updatedData.description : currentProject.description,
+            // Если пришёл пустой string, явно сбрасываем превью; иначе оставляем текущее значение
+            // Если новое превью пришло — пишем его; иначе оставляем текущее
+            thumbnail_url: typeof updatedData.thumbnail === 'string' ? updatedData.thumbnail : currentProject.thumbnail_url,
             // жанр проекта
             genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
           },
@@ -701,6 +708,9 @@ function AppContent() {
       }
 
       if (updatedProject) {
+        if (typeof updatedData.thumbnail === 'string') {
+          console.log('[thumbnail] project updated:', updatedProject.thumbnail_url);
+        }
         // После сохранения читаем последнюю версию, чтобы подтянуть URL изображений вместо base64
         const latest = !updatedData.onlyMeta ? await projectsService.getLatestVersion(currentProject.id) : null;
         let nextImages = updatedData.images || {};
@@ -845,6 +855,7 @@ function AppContent() {
         id: currentProject.id,
         title: currentProject.title,
         description: currentProject.description || '',
+          thumbnail: currentProject.thumbnail_url || '',
         nodes: currentProject.nodes || {},
         edges: currentProject.edges || [],
         images: currentProject.images || {},
