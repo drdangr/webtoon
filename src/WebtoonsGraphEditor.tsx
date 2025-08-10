@@ -2153,7 +2153,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                </div>
              </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <LanguageSwitcher />
             {/* Публичность/публикация (доступно если не подавлено сохранение) */}
             {!suppressSave && (
@@ -2174,7 +2174,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </button>
               </div>
             )}
-          {/* Выбор жанра */}
+          {/* Выбор жанра (перенос на новую строку) */}
+          <div className="basis-full h-0" />
           <select
             value={genreId || ''}
             onChange={(e) => {
@@ -2382,6 +2383,20 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold hidden lg:block">{t.editor.graph.title}</h2>
               <div className="flex items-center gap-2">
+                {/* Назад в галерею (иконка) */}
+                <button
+                  onClick={async () => {
+                    if (!isReadOnly && !suppressSave) {
+                      onSaveProject({ nodes, edges, images, title: projectTitle, description: projectDescription, thumbnail: projectThumbnail });
+                      await new Promise(r => setTimeout(r, 50));
+                    }
+                    onBackToGallery();
+                  }}
+                  className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  title={t.editor.backToGallery}
+                >
+                  <ArrowLeft size={18} />
+                </button>
                 {/* Галерея */}
                 <button onClick={() => setIsMobileGalleryOpen(true)} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title="Галерея">
                   <ImageIcon size={18} />
@@ -2607,11 +2622,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </div>
               </div>
             )}
-            {isCoarse && (
-              <button onClick={() => setIsMobileGalleryOpen(true)} className="fixed right-3 bottom-3 z-30 px-3 py-2 rounded-full shadow bg-purple-600 text-white">
-                {t.editor.tools.imagePool}
-              </button>
-            )}
+            {/* Плавающая фиолетовая кнопка пул изображений удалена */}
           </div>
           
           {/* Панель предпросмотра выделенной ноды */}
