@@ -2204,9 +2204,9 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         </div>
       </div>
 
-       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-full">
-        {/* Мобильный нижний тулбар */}
-        {/* Мобильный нижний тулбар убран по требованию, кнопки размещены в заголовке фрейма */}
+       <div className={`grid ${isCoarse ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-4'} gap-6 p-6 max-w-full`}>
+        {/* Левая колонка: скрыта на мобильном для двухпанельного режима */}
+        {!isCoarse && (
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-white rounded-lg shadow-sm p-4">
             <h3 className="font-semibold text-gray-800 mb-3">{t.editor.tools.imagePool}</h3>
@@ -2370,39 +2370,34 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
             </div>
           </div>
         </div>
+        )}
 
         <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh` } : { height: undefined }}>
+          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh`, overflow: 'hidden' } : { height: undefined }}>
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold hidden lg:block">{t.editor.graph.title}</h2>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setLinkMode(v => !v)}
-                  className={`px-3 py-1.5 rounded border text-sm ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  title={linkMode ? 'Связать: режим ВКЛ' : 'Связать: режим ВЫКЛ'}
-                >
-                  Связать
+                {/* Галерея */}
+                <button onClick={() => setIsMobileGalleryOpen(true)} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title="Галерея">
+                  <Images size={18} />
                 </button>
-                <button
-                  onClick={() => { if (selectedNodeId) detachNodeFromParents(selectedNodeId); }}
-                  disabled={!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))}
-                  className={`px-3 py-1.5 rounded border text-sm ${(!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))) ? 'bg-white text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                  title="Разорвать входящую связь выделенной ноды"
-                >
-                  Разорвать
+                {/* Просмотр */}
+                <button onClick={switchToViewer} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.viewComic}>
+                  <Eye size={18} />
                 </button>
-                <button
-                  onClick={uiUndo}
-                  className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center"
-                  title="Отменить (Ctrl+Z)"
-                >
+                {/* Связать */}
+                <button onClick={() => setLinkMode(v => !v)} className={`p-2 rounded border ${linkMode ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`} title={linkMode ? 'Связать: режим ВКЛ' : 'Связать: режим ВЫКЛ'}>
+                  <Link2 size={18} />
+                </button>
+                {/* Разорвать */}
+                <button onClick={() => { if (selectedNodeId) detachNodeFromParents(selectedNodeId); }} disabled={!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))} className={`p-2 rounded border ${(!selectedNodeId || (selectedNodeId && (nodes[selectedNodeId]?.type === 'start' || getNodeConnections(selectedNodeId).incoming.length === 0))) ? 'bg-white text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`} title="Разорвать входящую связь у выделенной ноды">
+                  <Link2Off size={18} />
+                </button>
+                {/* Undo/Redo */}
+                <button onClick={uiUndo} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center" title="Отменить (Ctrl+Z)">
                   <Undo2 size={16} />
                 </button>
-                <button
-                  onClick={uiRedo}
-                  className="p-2 rounded border text-sm bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center"
-                  title="Повторить (Ctrl+Y или Ctrl+Shift+Z)"
-                >
+                <button onClick={uiRedo} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50 flex items-center justify-center" title="Повторить (Ctrl+Y или Ctrl+Shift+Z)">
                   <Redo2 size={16} />
                 </button>
               </div>
