@@ -2506,9 +2506,8 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 <button onClick={switchToViewer} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.viewComic}>
                   <Eye size={18} />
                 </button>
-                {/* Fit graph to view (desktop) */}
-                {!isCoarse && (
-                  <button
+                {/* Fit graph to view (desktop + mobile) */}
+                <button
                     onClick={() => {
                       if (!graphScrollRef.current) return;
                       // flip/flop: если последний режим был fit — сбрасываем и центрируем на выбранной/стартовой ноде
@@ -2556,8 +2555,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                       <path d="M3 15v4a2 2 0 0 0 2 2h4"/>
                       <path d="M21 15v4a2 2 0 0 1-2 2h-4"/>
                     </svg>
-                  </button>
-                )}
+                </button>
                 {/* Создать ноду выбора */}
                 <button onClick={createChoiceNode} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.tools.addChoice}>
                   <GitBranchPlus size={18} />
@@ -2761,6 +2759,29 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                     {Object.values(images).map((image: any) => (
                       <button key={image.id} className="border rounded overflow-hidden" onClick={() => { createImageNode(image.id); setIsMobileGalleryOpen(false); }}>
                         <img src={image.src} alt={image.name} className="w-full h-16 object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Десктопное модальное окно галереи изображений */}
+            {!isCoarse && isMobileGalleryOpen && (
+              <div className="fixed inset-0 z-40 bg-black/30 flex items-end lg:items-center justify-center" onClick={(e) => { if (e.currentTarget === e.target) setIsMobileGalleryOpen(false); }}>
+                <div className="bg-white rounded-t-2xl lg:rounded-2xl shadow-xl border p-4 w-full lg:max-w-3xl max-h-[70vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold">{t.editor.tools.imagePool}</h3>
+                    <button onClick={() => setIsMobileGalleryOpen(false)} className="px-3 py-1 text-sm rounded bg-gray-100">Закрыть</button>
+                  </div>
+                  <div className="grid grid-cols-5 gap-3">
+                    <input ref={mobileFileInputRef} type="file" multiple accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <button onClick={() => mobileFileInputRef.current?.click()} className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex items-center justify-center text-3xl text-gray-400 hover:text-gray-600 hover:border-gray-400">
+                      +
+                    </button>
+                    {Object.values(images).map((image: any) => (
+                      <button key={image.id} className="border rounded-lg overflow-hidden hover:shadow" onClick={() => { createImageNode(image.id); setIsMobileGalleryOpen(false); }}>
+                        <img src={image.src} alt={image.name} className="w-full h-24 object-cover" />
                       </button>
                     ))}
                   </div>
