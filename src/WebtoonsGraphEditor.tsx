@@ -157,7 +157,7 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.addEventListener('pointermove', handlePointerMove, { passive: false });
     document.addEventListener('pointerup', handlePointerUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
-    const handleTouchMove = (te) => {
+    const handleTouchMoveNode = (te) => {
       if (!dragInfo.current) return;
       const t = te.touches && te.touches[0];
       if (!t) return;
@@ -169,11 +169,11 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
       onUpdatePosition(node.id, { x: newX, y: newY });
       te.preventDefault();
     };
-    const handleTouchEnd = () => {
+    const handleTouchEndNode = () => {
       handleMouseUp();
     };
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    document.addEventListener('touchmove', handleTouchMoveNode, { passive: false });
+    document.addEventListener('touchend', handleTouchEndNode, { passive: true });
     // Touch версии
     const handleTouchMove = (te) => {
       if (!dragInfo.current) return;
@@ -629,8 +629,8 @@ const NodeComponent = ({
       document.body.style.MozUserSelect = '';
       document.body.style.msUserSelect = '';
       document.body.classList.remove('dragging');
-      document.removeEventListener('touchmove', handleTouchMove as any);
-      document.removeEventListener('touchend', handleTouchEnd as any);
+      document.removeEventListener('touchmove', handleTouchMoveNode as any);
+      document.removeEventListener('touchend', handleTouchEndNode as any);
     };
   }, [isDragging, node.id, onUpdatePosition]);
 
