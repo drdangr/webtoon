@@ -848,6 +848,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isWheelOverCanvas, setIsWheelOverCanvas] = useState(false);
   const graphScrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mobileFileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadQueue, setUploadQueue] = useState<{ id: string; name: string; progress: number }[]>([]);
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
@@ -2072,8 +2073,9 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow-sm border-b p-4">
-        <div className="flex items-center justify-between max-w-full mx-auto">
+        <div className="flex flex-wrap items-center justify-between gap-2 max-w-full mx-auto">
           <div className="flex items-center gap-4">
+            {!isCoarse && (
             <button
               onClick={async () => {
                 // Перед уходом пытаемся сохранить текущее состояние (для автора)
@@ -2096,6 +2098,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               <ArrowLeft size={16} />
               {t.editor.backToGallery}
             </button>
+            )}
              <div>
                {/* Редактируемое название */}
                <div className="flex items-center">
@@ -2193,13 +2196,15 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
               <option key={g.id} value={g.id}>{g.icon ? g.icon + ' ' : ''}{g.name}</option>
             ))}
           </select>
-            <button
-              onClick={switchToViewer}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Eye size={16} />
-              {t.editor.viewComic}
-            </button>
+            {!isCoarse && (
+              <button
+                onClick={switchToViewer}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Eye size={16} />
+                {t.editor.viewComic}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2402,23 +2407,6 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </button>
               </div>
             </div>
-            {/* Разделитель для mobile: drag up/down */}
-            {isCoarse && (
-              <div
-                role="separator"
-                aria-orientation="horizontal"
-                className="h-3 -mx-4 cursor-row-resize flex items-center justify-center"
-                onMouseDown={(e) => {
-                  isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none';
-                }}
-                onTouchStart={(e) => {
-                  const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none';
-                }}
-              >
-                <div className="w-12 h-1 rounded bg-gray-300" />
-              </div>
-            )}
-            
             <div 
                 ref={graphScrollRef}
                 onMouseEnter={() => setIsWheelOverCanvas(true)}
@@ -2571,6 +2559,19 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                   2000 × 1500 px
                 </div>
               </div>
+
+              {/* Разделитель для mobile: drag up/down (между графом и предпросмотром) */}
+              {isCoarse && (
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  className="h-4 -mx-4 cursor-row-resize flex items-center justify-center"
+                  onMouseDown={(e) => { isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
+                  onTouchStart={(e) => { const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
+                >
+                  <div className="w-14 h-1.5 rounded bg-gray-300" />
+                </div>
+              )}
             </div>
             
             <div className="mt-2 text-xs text-gray-500 flex justify-between">
@@ -2592,6 +2593,11 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                     <button onClick={() => setIsMobileGalleryOpen(false)} className="px-3 py-1 text-sm rounded bg-gray-100">Закрыть</button>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
+                    {/* Кнопка добавления изображений */}
+                    <input ref={mobileFileInputRef} type="file" multiple accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <button onClick={() => mobileFileInputRef.current?.click()} className="aspect-square rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center text-2xl text-gray-400 hover:text-gray-600 hover:border-gray-400">
+                      +
+                    </button>
                     {Object.values(images).map((image: any) => (
                       <button key={image.id} className="border rounded overflow-hidden" onClick={() => { createImageNode(image.id); setIsMobileGalleryOpen(false); }}>
                         <img src={image.src} alt={image.name} className="w-full h-16 object-cover" />
