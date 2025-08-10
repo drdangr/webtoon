@@ -251,8 +251,33 @@ function Gallery({
                 key={project.id}
                 className="rounded-2xl overflow-hidden bg-white/5 border border-white/10 hover:border-white/20 hover:bg-white/10 transition-colors"
               >
-                {/* Превью проекта */}
-                <div className="aspect-[4/3] bg-black relative">
+                {/* Превью проекта (кликабельно открывает проект) */}
+                <div
+                  className="aspect-[4/3] bg-black relative cursor-pointer"
+                  onClick={() => {
+                    if (project.user_id === currentUser.id) {
+                      onEditProject(project);
+                    } else {
+                      // Оптимистично увеличим просмотры в UI
+                      setProjects(prev => prev.map(p => p.id === project.id ? { ...p, view_count: (p.view_count || 0) + 1 } : p));
+                      onEditProject(project);
+                    }
+                  }}
+                  role="button"
+                  aria-label={`${t.gallery.viewProject}: ${project.title}`}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (project.user_id === currentUser.id) {
+                        onEditProject(project);
+                      } else {
+                        setProjects(prev => prev.map(p => p.id === project.id ? { ...p, view_count: (p.view_count || 0) + 1 } : p));
+                        onEditProject(project);
+                      }
+                    }
+                  }}
+                >
                   {project.thumbnail_url ? (
                     <img
                       src={project.thumbnail_url}

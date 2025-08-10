@@ -111,8 +111,15 @@ function Gallery({
                 key={project.id}
                 className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow overflow-hidden"
               >
-                {/* Превью проекта */}
-                <div className="aspect-video bg-gray-200 relative">
+                {/* Превью проекта (кликабельно) */}
+                <div
+                  className="aspect-video bg-gray-200 relative cursor-pointer"
+                  onClick={() => onEditProject(project)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEditProject(project); } }}
+                  aria-label={`${t.gallery.viewProject}: ${project.title}`}
+                >
                   {project.thumbnail ? (
                     <img
                       src={project.thumbnail}

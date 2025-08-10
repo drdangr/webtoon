@@ -914,6 +914,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [draggedHotspot, setDraggedHotspot] = useState(null); // Состояние для перетаскивания хотспотов
   const [scrollPosition, setScrollPosition] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const [isFitApplied, setIsFitApplied] = useState(false);
   const [isWheelOverCanvas, setIsWheelOverCanvas] = useState(false);
   const graphScrollRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -932,8 +933,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isCoarse, setIsCoarse] = useState(false);
   const [isMobileGalleryOpen, setIsMobileGalleryOpen] = useState(false);
   const [isMobileHotspotEditorOpen, setIsMobileHotspotEditorOpen] = useState(false);
-  // Мобильный разделитель (верх: граф, низ: предпросмотр)
-  const [mobileSplitRatio, setMobileSplitRatio] = useState(0.55); // доля высоты для графа [0.3..0.85]
+  // Разделитель (верх: граф, низ: предпросмотр)
+  // Мобильный и десктопный режимы хранятся отдельно, чтобы помнить предпочтения
+  const [mobileSplitRatio, setMobileSplitRatio] = useState(0.55); // [0.3..0.85]
+  const [desktopSplitRatio, setDesktopSplitRatio] = useState(0.45); // граф ниже в ~2 раза на десктопе по умолчанию
   const isSplittingRef = useRef(false);
   const splitStartRef = useRef<{ startY: number; startRatio: number } | null>(null);
   React.useEffect(() => {
@@ -945,18 +948,22 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     return () => m.removeEventListener?.('change', update);
   }, []);
 
-  // Сохраняем/восстанавливаем положение разделителя (только для mobile)
+  // Сохраняем/восстанавливаем положение разделителя
   React.useEffect(() => {
-    if (!isCoarse) return;
-    const saved = localStorage.getItem('mobileSplitRatio');
+    const key = isCoarse ? 'mobileSplitRatio' : 'desktopSplitRatio';
+    const saved = localStorage.getItem(key);
     if (saved) {
       const v = parseFloat(saved);
-      if (!Number.isNaN(v) && v > 0.3 && v < 0.85) setMobileSplitRatio(v);
+      if (!Number.isNaN(v) && v > 0.3 && v < 0.85) {
+        if (isCoarse) setMobileSplitRatio(v); else setDesktopSplitRatio(v);
+      }
     }
   }, [isCoarse]);
   React.useEffect(() => {
-    if (isCoarse) localStorage.setItem('mobileSplitRatio', String(mobileSplitRatio));
-  }, [isCoarse, mobileSplitRatio]);
+    const key = isCoarse ? 'mobileSplitRatio' : 'desktopSplitRatio';
+    const value = isCoarse ? mobileSplitRatio : desktopSplitRatio;
+    localStorage.setItem(key, String(value));
+  }, [isCoarse, mobileSplitRatio, desktopSplitRatio]);
 
   // Открывать мобильный редактор хот-спотов при выборе choice-ноды
   React.useEffect(() => {
@@ -1209,7 +1216,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     }
   };
 
-  // Восстановление позиции скролла при загрузке проекта (или центрирование на START при первом открытии)
+  // Восстановление позиции скролла при загрузке проекта (или fit-to-view при первом открытии)
   React.useEffect(() => {
     if (!graphScrollRef.current || !initialProject) return;
     const savedScrollKey = `scroll-${initialProject.id}`;
@@ -1220,13 +1227,39 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         graphScrollRef.current.scrollLeft = x;
         graphScrollRef.current.scrollTop = y;
         setScrollPosition({ x, y });
-        return;
       } catch (error) {
         console.error('Ошибка восстановления позиции скролла:', error);
       }
     }
-    // Если сохранённой позиции нет — центрируемся на START
-    setTimeout(() => centerOnNode('start'), 0);
+    // Показываем весь граф в видимой области ТОЛЬКО при первом открытии (когда нет сохранённой позиции)
+    if (!savedScroll) setTimeout(() => {
+      const container = graphScrollRef.current!;
+      const nodeList = Object.values(nodes);
+      if (nodeList.length === 0) return;
+      const minX = Math.min(...nodeList.map((n: any) => n.position.x));
+      const minY = Math.min(...nodeList.map((n: any) => n.position.y));
+      const maxX = Math.max(...nodeList.map((n: any) => n.position.x + 100));
+      const maxY = Math.max(...nodeList.map((n: any) => n.position.y + 100));
+      const graphWidth = maxX - minX;
+      const graphHeight = maxY - minY;
+      const padding = 80;
+      const availW = container.clientWidth - padding;
+      const availH = container.clientHeight - padding;
+      if (availW <= 0 || availH <= 0 || graphWidth <= 0 || graphHeight <= 0) return;
+      const scaleX = availW / graphWidth;
+      const scaleY = availH / graphHeight;
+      const targetZoom = Math.max(0.5, Math.min(2, Math.min(scaleX, scaleY)));
+      setZoom(targetZoom);
+      requestAnimationFrame(() => {
+        const scaledWidth = graphWidth * targetZoom;
+        const scaledHeight = graphHeight * targetZoom;
+        const startLeft = (minX * targetZoom) - Math.max(0, (availW - scaledWidth) / 2) + (padding / 2);
+        const startTop = (minY * targetZoom) - Math.max(0, (availH - scaledHeight) / 2) + (padding / 2);
+        container.scrollLeft = Math.max(0, startLeft);
+        container.scrollTop = Math.max(0, startTop);
+        setIsFitApplied(true);
+      });
+    }, 0);
   }, [initialProject]);
 
   // Сохранение позиции скролла
@@ -1949,15 +1982,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     // Перестраиваем при изменениях графа
   }, [mode, nodes, edges, images]);
 
-  // Обработчики разделителя (mobile): глобальный move/up
+  // Обработчики разделителя: глобальный move/up
   React.useEffect(() => {
-    if (!isCoarse) return;
     const handleMove = (clientY: number) => {
       if (!isSplittingRef.current || !splitStartRef.current) return;
       const dy = clientY - splitStartRef.current.startY;
       const deltaRatio = dy / (window.innerHeight || 1);
       const next = Math.max(0.3, Math.min(0.85, splitStartRef.current.startRatio + deltaRatio));
-      setMobileSplitRatio(next);
+      if (isCoarse) setMobileSplitRatio(next); else setDesktopSplitRatio(next);
     };
     const onMouseMove = (e: MouseEvent) => { if (isSplittingRef.current) { e.preventDefault(); handleMove(e.clientY); } };
     const onMouseUp = () => { if (isSplittingRef.current) { isSplittingRef.current = false; splitStartRef.current = null; document.body.style.userSelect = ''; } };
@@ -2448,7 +2480,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         )}
 
         <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh`, overflow: 'hidden', paddingBottom: '0.75rem' } : { height: undefined }}>
+          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={{ height: `${Math.round((isCoarse ? mobileSplitRatio : desktopSplitRatio) * 100)}vh`, overflow: 'hidden', paddingBottom: isCoarse ? '0.75rem' : undefined }}>
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold hidden lg:block">{t.editor.graph.title}</h2>
               <div className="flex items-center gap-2">
@@ -2474,6 +2506,58 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 <button onClick={switchToViewer} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.viewComic}>
                   <Eye size={18} />
                 </button>
+                {/* Fit graph to view (desktop) */}
+                {!isCoarse && (
+                  <button
+                    onClick={() => {
+                      if (!graphScrollRef.current) return;
+                      // flip/flop: если последний режим был fit — сбрасываем и центрируем на выбранной/стартовой ноде
+                      if (isFitApplied) {
+                        setIsFitApplied(false);
+                        // Сбрасываем масштаб и центрируем — без повторного трека fit
+                        setZoom(1);
+                        const nodeId = selectedNodeId || 'start';
+                        requestAnimationFrame(() => centerOnNode(nodeId));
+                        return;
+                      }
+                      const nodeList = Object.values(nodes);
+                      if (nodeList.length === 0) return;
+                      const minX = Math.min(...nodeList.map((n: any) => n.position.x));
+                      const minY = Math.min(...nodeList.map((n: any) => n.position.y));
+                      const maxX = Math.max(...nodeList.map((n: any) => n.position.x + 100));
+                      const maxY = Math.max(...nodeList.map((n: any) => n.position.y + 100));
+                      const graphWidth = maxX - minX;
+                      const graphHeight = maxY - minY;
+                      const container = graphScrollRef.current;
+                      const padding = 80;
+                      const availW = container.clientWidth - padding;
+                      const availH = container.clientHeight - padding;
+                      if (availW <= 0 || availH <= 0) return;
+                      const scaleX = availW / graphWidth;
+                      const scaleY = availH / graphHeight;
+                      const targetZoom = Math.max(0.5, Math.min(2, Math.min(scaleX, scaleY)));
+                      setZoom(targetZoom);
+                      requestAnimationFrame(() => {
+                        const scaledWidth = graphWidth * targetZoom;
+                        const scaledHeight = graphHeight * targetZoom;
+                        const startLeft = (minX * targetZoom) - Math.max(0, (availW - scaledWidth) / 2) + (padding / 2);
+                        const startTop = (minY * targetZoom) - Math.max(0, (availH - scaledHeight) / 2) + (padding / 2);
+                        container.scrollLeft = Math.max(0, startLeft);
+                        container.scrollTop = Math.max(0, startTop);
+                        setIsFitApplied(true);
+                      });
+                    }}
+                    className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                    title="Показать весь граф / Сбросить до 100%"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 9V5a2 2 0 0 1 2-2h4"/>
+                      <path d="M21 9V5a2 2 0 0 0-2-2h-4"/>
+                      <path d="M3 15v4a2 2 0 0 0 2 2h4"/>
+                      <path d="M21 15v4a2 2 0 0 1-2 2h-4"/>
+                    </svg>
+                  </button>
+                )}
                 {/* Создать ноду выбора */}
                 <button onClick={createChoiceNode} className="p-2 rounded border bg-white text-gray-700 border-gray-300 hover:bg-gray-50" title={t.editor.tools.addChoice}>
                   <GitBranchPlus size={18} />
@@ -2687,14 +2771,14 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           </div>
           
           {/* Панель предпросмотра выделенной ноды */}
-          <div className="bg-white rounded-lg shadow-sm p-4 border" style={isCoarse ? { height: `${Math.max(30, Math.min(85, Math.round((1 - mobileSplitRatio) * 100)))}vh`, position: 'relative' } : undefined}>
-            {isCoarse && (
+          <div className="bg-white rounded-lg shadow-sm p-4 border" style={{ height: `${Math.max(30, Math.min(85, Math.round((1 - (isCoarse ? mobileSplitRatio : desktopSplitRatio)) * 100)))}vh`, position: 'relative' }}>
+            {(
               <div
                 role="separator"
                 aria-orientation="horizontal"
                 className="absolute -top-2 left-0 right-0 h-4 cursor-row-resize flex items-center justify-center"
-                onMouseDown={(e) => { isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
-                onTouchStart={(e) => { const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none'; }}
+                onMouseDown={(e) => { isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: isCoarse ? mobileSplitRatio : desktopSplitRatio }; document.body.style.userSelect = 'none'; }}
+                onTouchStart={(e) => { const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: isCoarse ? mobileSplitRatio : desktopSplitRatio }; document.body.style.userSelect = 'none'; }}
               >
                 <div className="w-14 h-1.5 rounded bg-gray-300" />
               </div>
