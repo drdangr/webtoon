@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useCallback } from 'react';
-import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2 } from 'lucide-react';
+import { Upload, Plus, Eye, ArrowLeft, Trash2, MousePointer, Undo2, Redo2, Link2, Link2Off, Images } from 'lucide-react';
 import { useLanguage, LanguageSwitcher } from './LanguageContext';
 import { storageService } from './services/storage.service';
 import { projectsService } from './services/projects.service';
@@ -862,6 +862,10 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
   const [isCoarse, setIsCoarse] = useState(false);
   const [isMobileGalleryOpen, setIsMobileGalleryOpen] = useState(false);
   const [isMobileHotspotEditorOpen, setIsMobileHotspotEditorOpen] = useState(false);
+  // Мобильный разделитель (верх: граф, низ: предпросмотр)
+  const [mobileSplitRatio, setMobileSplitRatio] = useState(0.55); // доля высоты для графа [0.3..0.85]
+  const isSplittingRef = useRef(false);
+  const splitStartRef = useRef<{ startY: number; startRatio: number } | null>(null);
   React.useEffect(() => {
     if (typeof window === 'undefined' || !(window as any).matchMedia) return;
     const m = window.matchMedia('(pointer: coarse)');
@@ -870,6 +874,19 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     m.addEventListener?.('change', update);
     return () => m.removeEventListener?.('change', update);
   }, []);
+
+  // Сохраняем/восстанавливаем положение разделителя (только для mobile)
+  React.useEffect(() => {
+    if (!isCoarse) return;
+    const saved = localStorage.getItem('mobileSplitRatio');
+    if (saved) {
+      const v = parseFloat(saved);
+      if (!Number.isNaN(v) && v > 0.3 && v < 0.85) setMobileSplitRatio(v);
+    }
+  }, [isCoarse]);
+  React.useEffect(() => {
+    if (isCoarse) localStorage.setItem('mobileSplitRatio', String(mobileSplitRatio));
+  }, [isCoarse, mobileSplitRatio]);
 
   // Открывать мобильный редактор хот-спотов при выборе choice-ноды
   React.useEffect(() => {
