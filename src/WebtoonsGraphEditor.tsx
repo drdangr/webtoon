@@ -83,23 +83,31 @@ const DraggableHotspot = React.memo(({ hotspot, choiceNodeId, onHotspotUpdate, i
     document.body.style.userSelect = 'none';
   };
 
+  // Touch-старт перетаскивания ноды (мобильные устройства)
   const handleTouchStartNode = (e) => {
+    if (panActive) return;
     if (isDragging) return;
-    const t = e.touches && e.touches[0];
-    if (!t) return;
+    const touch = e.touches && e.touches[0];
+    if (!touch) return;
+
     e.preventDefault();
     e.stopPropagation();
+
     dragInfo.current = {
-      startX: t.pageX,
-      startY: t.pageY,
+      startX: touch.pageX,
+      startY: touch.pageY,
       nodeStartX: node.position.x,
       nodeStartY: node.position.y
     };
+
     setIsDragging(true);
     document.body.style.cursor = 'grabbing';
     document.body.style.userSelect = 'none';
     document.body.classList.add('dragging');
   };
+
+  // Удалённая ранее попытка обработчика для нод попала в хотспоты по ошибке.
+  // Здесь не должно быть обработчиков нод. Этот блок удалён.
 
   React.useEffect(() => {
     if (!isDragging) return;
@@ -605,10 +613,31 @@ const NodeComponent = ({
       }
     };
 
-    // Добавляем обработчики
+    // Добавляем обработчики мыши
     document.addEventListener('mousemove', handleMouseMove, { passive: false });
     document.addEventListener('mouseup', handleMouseUp, { passive: false });
     document.addEventListener('contextmenu', handleContextMenu, { passive: false });
+
+    // Обработчики touch для мобильных
+    const handleTouchMoveNode = (te) => {
+      if (!dragInfo.current) return;
+      const t = te.touches && te.touches[0];
+      if (!t) return;
+      const k = scale || 1;
+      const deltaX = (t.pageX - dragInfo.current.startX) / k;
+      const deltaY = (t.pageY - dragInfo.current.startY) / k;
+      const newX = Math.max(10, Math.min(1900, dragInfo.current.nodeStartX + deltaX));
+      const newY = Math.max(10, Math.min(1400, dragInfo.current.nodeStartY + deltaY));
+      onUpdatePosition(node.id, { x: newX, y: newY });
+      te.preventDefault();
+    };
+
+    const handleTouchEndNode = () => {
+      handleMouseUp();
+    };
+
+    document.addEventListener('touchmove', handleTouchMoveNode, { passive: false });
+    document.addEventListener('touchend', handleTouchEndNode, { passive: true });
     
     // Дополнительная проверка на потерю фокуса окна
     const handleBlur = () => {
