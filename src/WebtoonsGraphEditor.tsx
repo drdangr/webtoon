@@ -1879,6 +1879,32 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
     // Перестраиваем при изменениях графа
   }, [mode, nodes, edges, images]);
 
+  // Обработчики разделителя (mobile): глобальный move/up
+  React.useEffect(() => {
+    if (!isCoarse) return;
+    const handleMove = (clientY: number) => {
+      if (!isSplittingRef.current || !splitStartRef.current) return;
+      const dy = clientY - splitStartRef.current.startY;
+      const deltaRatio = dy / (window.innerHeight || 1);
+      const next = Math.max(0.3, Math.min(0.85, splitStartRef.current.startRatio + deltaRatio));
+      setMobileSplitRatio(next);
+    };
+    const onMouseMove = (e: MouseEvent) => { if (isSplittingRef.current) { e.preventDefault(); handleMove(e.clientY); } };
+    const onMouseUp = () => { if (isSplittingRef.current) { isSplittingRef.current = false; splitStartRef.current = null; document.body.style.userSelect = ''; } };
+    const onTouchMove = (e: TouchEvent) => { if (isSplittingRef.current && e.touches[0]) { e.preventDefault(); handleMove(e.touches[0].clientY); } };
+    const onTouchEnd = () => { if (isSplittingRef.current) { isSplittingRef.current = false; splitStartRef.current = null; document.body.style.userSelect = ''; } };
+    document.addEventListener('mousemove', onMouseMove, { passive: false });
+    document.addEventListener('mouseup', onMouseUp, { passive: true });
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove as any);
+      document.removeEventListener('mouseup', onMouseUp as any);
+      document.removeEventListener('touchmove', onTouchMove as any);
+      document.removeEventListener('touchend', onTouchEnd as any);
+    };
+  }, [isCoarse]);
+
   if (mode === 'viewer') {
     return (
       <div className="min-h-screen bg-black">
@@ -2346,9 +2372,9 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
         </div>
 
         <div className="lg:col-span-3 space-y-4">
-          <div className="bg-white rounded-lg shadow-sm p-4 h-96 lg:h-[400px] relative border">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">{t.editor.graph.title}</h2>
+          <div className="bg-white rounded-lg shadow-sm p-4 relative border" style={isCoarse ? { height: `${Math.round(mobileSplitRatio * 100)}vh` } : { height: undefined }}>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xl font-semibold hidden lg:block">{t.editor.graph.title}</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setLinkMode(v => !v)}
@@ -2381,8 +2407,24 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
                 </button>
               </div>
             </div>
+            {/* Разделитель для mobile: drag up/down */}
+            {isCoarse && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                className="h-3 -mx-4 cursor-row-resize flex items-center justify-center"
+                onMouseDown={(e) => {
+                  isSplittingRef.current = true; splitStartRef.current = { startY: e.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none';
+                }}
+                onTouchStart={(e) => {
+                  const t = e.touches[0]; isSplittingRef.current = true; splitStartRef.current = { startY: t.clientY, startRatio: mobileSplitRatio }; document.body.style.userSelect = 'none';
+                }}
+              >
+                <div className="w-12 h-1 rounded bg-gray-300" />
+              </div>
+            )}
             
-              <div 
+            <div 
                 ref={graphScrollRef}
                 onMouseEnter={() => setIsWheelOverCanvas(true)}
                 onMouseLeave={() => setIsWheelOverCanvas(false)}
@@ -2572,7 +2614,7 @@ const WebtoonsGraphEditor = ({ initialProject, currentUser, isReadOnly, suppress
           </div>
           
           {/* Панель предпросмотра выделенной ноды */}
-          <div className="bg-white rounded-lg shadow-sm p-4 border">
+          <div className="bg-white rounded-lg shadow-sm p-4 border" style={isCoarse ? { height: `${Math.max(30, Math.min(85, Math.round((1 - mobileSplitRatio) * 100)))}vh` } : undefined}>
             <h3 className="text-lg font-semibold mb-3 text-gray-800">
               {selectedNodeId ? t.editor.preview.title : t.editor.preview.selectNode}
             </h3>
