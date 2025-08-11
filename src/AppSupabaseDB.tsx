@@ -786,6 +786,10 @@ function AppContent() {
             genre_id: typeof updatedData.genre_id !== 'undefined' ? updatedData.genre_id : (currentProject as any)?.genre_id
           }
         );
+        // Оптимистичное обновление локального статуса, чтобы UI не залипал
+        if (typeof updatedData.isPublic === 'boolean') {
+          setCurrentProject(prev => prev ? ({ ...prev, is_public: updatedData.isPublic }) as any : prev);
+        }
         // Страховка: если у проекта ещё нет версий, создадим первую версию из текущего состояния
         try {
           const existing = await projectsService.getLatestVersion(currentProject.id);
